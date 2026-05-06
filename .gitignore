@@ -1,0 +1,36 @@
+# Build artifacts
+/dist/
+/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go test output
+*.test
+*.out
+coverage.html
+
+# Terraform-generated files in examples/
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/crash.log
+**/crash.*.log
+
+# Provider binary built by `go install`
+terraform-provider-fianu
+
+# tfplugindocs scratch space
+.changes/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local-only
+*.local.tf
+*.tfvars
+.envrc

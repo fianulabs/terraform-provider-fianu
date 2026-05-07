@@ -362,13 +362,14 @@ func toDocumentations(in []documentationModel) []fianu_entities.Documentation {
 }
 
 // toResults converts the typed model into the server's map[string]bool. The
-// keys are the entities.ResultKey* constants — the only place magic strings
-// for these keys appear in the codebase.
+// keys are the entities.ResultKey* typed constants — the only place magic
+// strings for these keys appear in the codebase. Cast to string at the
+// callsite because Results is map[string]bool.
 func toResults(in *resultsModel) fianu_entities.Results {
 	out := fianu_entities.Results{}
-	setIf := func(key string, v types.Bool) {
+	setIf := func(key fianu_entities.ResultKey, v types.Bool) {
 		if !v.IsNull() && !v.IsUnknown() {
-			out[key] = v.ValueBool()
+			out[string(key)] = v.ValueBool()
 		}
 	}
 	setIf(fianu_entities.ResultKeyPass, in.Pass)
@@ -383,16 +384,7 @@ func hydrateFromDeployResponse(ctx context.Context, m *controlModel, resp *trans
 	if resp == nil || resp.Metadata == nil {
 		return nil
 	}
-	env := base.EntityEnvelope{
-		EntityType:      entityType,
-		EntityID:        resp.Metadata.EntityID,
-		Path:            firstNonEmpty(resp.Metadata.Path, m.Path.ValueString()),
-		Name:            firstNonEmpty(resp.Metadata.Name, m.Name.ValueString()),
-		VersionSemantic: resp.Metadata.Version,
-		Metadata:        map[string]string{},
-		Parents:         []string{},
-		Children:        []string{},
-	}
+	env := base.EnvelopeFromDeployMetadata(entityType, resp.Metadata, m.Path.ValueString(), m.Name.ValueString())
 	return m.Hydrate(ctx, env)
 }
 
@@ -420,20 +412,7 @@ func hydrateFromControl(ctx context.Context, m *controlModel, c *fianu_entities.
 	if c == nil {
 		return nil
 	}
-	env := base.EntityEnvelope{
-		EntityType:       entityType,
-		EntityID:         c.UUID,
-		Path:             c.Path,
-		Name:             c.Name,
-		VersionSemantic:  c.Version.Semantic,
-		VersionUUID:      c.Version.UUID,
-		VersionStatus:    string(c.Version.Status),
-		VersionState:     string(c.Version.State),
-		VersionTimestamp: c.Version.Timestamp,
-		Metadata:         map[string]string{},
-		Parents:          []string{},
-		Children:         []string{},
-	}
+	env := base.EnvelopeFromStandardEntity(entityType, &c.StandardEntity)
 	diags := m.Hydrate(ctx, env)
 
 	if c.Detail.Control != nil {
@@ -447,13 +426,4 @@ func hydrateFromControl(ctx context.Context, m *controlModel, c *fianu_entities.
 	}
 
 	return diags
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }

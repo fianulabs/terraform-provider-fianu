@@ -1,6 +1,7 @@
 package control_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
 	transportv1 "github.com/fianulabs/core/v2/external/transport/http/v1"
 	"github.com/fianulabs/terraform-provider-fianu/internal/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -95,18 +97,28 @@ func protoV6Factories() map[string]func() (tfprotov6.ProviderServer, error) {
 //     "skipped" for repeats (mirrors the real idempotency gate)
 //   - GET  /controls/{key}            → returns a Control with the same
 //     identity the deploy stored
-//   - PUT  /entities/{type}/{uuid}/status → archive
+//   - DELETE /archive/<type>/<uuid>   → archive
 //
-// The stub records call counts on each path so tests can post-assert.
+// The stub records call counts on each path AND captures the most recent
+// deployed entity (decoded from X-Fianu-Raw-Content) so tests can assert on
+// the wire payload directly.
 type consoleStub struct {
-	server     *httptest.Server
-	deployHits atomic.Int32
-	fetchHits  atomic.Int32
+	server      *httptest.Server
+	deployHits  atomic.Int32
+	fetchHits   atomic.Int32
 	archiveHits atomic.Int32
 
-	// stored remembers the most recently deployed entity so subsequent reads
+	// stored remembers the most recently deployed response so subsequent reads
 	// reflect the just-applied state.
 	stored atomic.Value // *transportv1.DeployEntityFileResponse
+
+	// capturedEntity is the most recent *fianu_entities.Control decoded from
+	// the X-Fianu-Raw-Content header. Tests inspect this to verify the HCL
+	// translated into the expected entity payload.
+	capturedEntity atomic.Value // *fianu_entities.Control
+	// capturedRawContent is the raw bytes that were base64-decoded from the
+	// header. Useful for asserting evaluation[].content round-trips byte-for-byte.
+	capturedRawContent atomic.Value // []byte
 }
 
 func newConsoleStub(t *testing.T) *consoleStub {
@@ -125,6 +137,20 @@ func newConsoleStub(t *testing.T) *consoleStub {
 			path = *req.General.Path
 		}
 
+		// Capture the deployed entity for test assertions. Real callers send
+		// the entity JSON via X-Fianu-Raw-Content (base64-encoded).
+		entityName := ""
+		if rawHdr := r.Header.Get("X-Fianu-Raw-Content"); rawHdr != "" {
+			if rawBytes, err := base64.StdEncoding.DecodeString(rawHdr); err == nil {
+				stub.capturedRawContent.Store(rawBytes)
+				var entity fianu_entities.Control
+				if err := json.Unmarshal(rawBytes, &entity); err == nil {
+					stub.capturedEntity.Store(&entity)
+					entityName = entity.Name
+				}
+			}
+		}
+
 		// Second deploy with same content is a no-op per the real gate; the
 		// stub mimics that by inspecting the X-Fianu-CI-System-Hash header
 		// against the prior call.
@@ -138,6 +164,12 @@ func newConsoleStub(t *testing.T) *consoleStub {
 			}
 		}
 
+		// Echo the deployed entity's name back so the provider's hydrate path
+		// doesn't overwrite the user-authored value with a stub-side default.
+		respName := entityName
+		if respName == "" {
+			respName = "Basic Test Control"
+		}
 		resp := &transportv1.DeployEntityFileResponse{
 			Message: "ok",
 			Metadata: &transportv1.DeploymentMetadata{
@@ -145,7 +177,7 @@ func newConsoleStub(t *testing.T) *consoleStub {
 				ContentHash: r.Header.Get("X-Fianu-CI-System-Hash"),
 				EntityID:    "test-uuid-fixed",
 				Path:        path,
-				Name:        "Basic Test Control",
+				Name:        respName,
 				Version:     "1",
 				EntityType:  "control",
 			},
@@ -158,9 +190,23 @@ func newConsoleStub(t *testing.T) *consoleStub {
 
 	mux.HandleFunc("/controls/", func(w http.ResponseWriter, r *http.Request) {
 		stub.fetchHits.Add(1)
-		// Echo back a control matching what the latest deploy stored.
 		key := strings.TrimPrefix(r.URL.Path, "/controls/")
 		w.Header().Set("Content-Type", "application/json")
+
+		// Echo back the most recently deployed entity so Read doesn't drift
+		// against the user's HCL. Falls back to a vanilla fixture for tests
+		// that fetch before any deploy lands.
+		if captured, _ := stub.capturedEntity.Load().(*fianu_entities.Control); captured != nil {
+			out := *captured // shallow copy is fine — we only mutate top-level
+			out.UUID = "test-uuid-fixed"
+			out.Type = "control"
+			out.Version.Semantic = "1"
+			out.Version.UUID = "version-uuid"
+			out.Version.Status = "active"
+			out.Version.State = "published"
+			_ = json.NewEncoder(w).Encode(out)
+			return
+		}
 		_, _ = fmt.Fprintf(w, `{
   "uuid":"test-uuid-fixed",
   "name":"Basic Test Control",
@@ -186,3 +232,219 @@ func newConsoleStub(t *testing.T) *consoleStub {
 	stub.server = httptest.NewServer(mux)
 	return stub
 }
+
+// TestAccFianuControl_FullSpec exercises the full HCL schema introduced in
+// Phase 1.1: documentation, results, relations, assets, policy_template
+// (with nested measures), evaluation cases (rule + python content), and
+// config. The test asserts the stub server received an entity with each
+// section populated — proving the HCL → Go entity translation is faithful.
+func TestAccFianuControl_FullSpec(t *testing.T) {
+	stub := newConsoleStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{Config: testAccConfigFullSpec},
+			// Re-plan: identical content must produce zero diff.
+			{
+				Config: testAccConfigFullSpec,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+		},
+	})
+
+	captured, _ := stub.capturedEntity.Load().(*fianu_entities.Control)
+	if captured == nil {
+		t.Fatalf("expected the stub to have captured a deployed entity, got nil")
+	}
+
+	// Identity round-trip
+	if captured.Path != "test.full.spec.checkmarx" {
+		t.Errorf("entity Path = %q, want %q", captured.Path, "test.full.spec.checkmarx")
+	}
+	if captured.Detail.Control == nil || captured.Detail.Control.DisplayKey != "FSPEC" {
+		t.Errorf("ControlInfo.DisplayKey not propagated: %+v", captured.Detail.Control)
+	}
+
+	// Documentation
+	if len(captured.Detail.Documentation) != 1 || captured.Detail.Documentation[0].Title != "Vendor docs" {
+		t.Errorf("Documentation not populated: %+v", captured.Detail.Documentation)
+	}
+
+	// Results: fail=true should be on the wire as the bool true.
+	if v, ok := captured.Detail.Results["fail"]; !ok || v != true {
+		t.Errorf("Results[fail] = %v ok=%v, want true", v, ok)
+	}
+
+	// Relations
+	if len(captured.Detail.Relations) != 1 {
+		t.Fatalf("expected 1 relation, got %d", len(captured.Detail.Relations))
+	}
+	rel := captured.Detail.Relations[0]
+	if rel.Domain != "compliance.controls" || rel.Collection != "security" {
+		t.Errorf("relation domain/collection wrong: %+v", rel)
+	}
+	if rel.Producer == nil || rel.Producer.Path != "checkmarx" {
+		t.Errorf("relation producer not propagated: %+v", rel.Producer)
+	}
+
+	// Assets
+	if len(captured.Detail.Assets) != 1 || string(captured.Detail.Assets[0].Type) != "module" {
+		t.Errorf("Assets not propagated: %+v", captured.Detail.Assets)
+	}
+
+	// Policy template measures (nested 3 levels: vulnerabilities → critical → maximum)
+	measures := captured.Detail.PolicyTemplate.Measures
+	if len(measures) == 0 {
+		t.Fatal("PolicyTemplate.Measures empty")
+	}
+	var sawMaximum bool
+	for _, m := range measures {
+		if m.Name != "vulnerabilities" {
+			continue
+		}
+		for _, child := range m.Children {
+			if child.Name != "critical" {
+				continue
+			}
+			for _, leaf := range child.Children {
+				if leaf.Name == "maximum" && leaf.Type == "metric" {
+					sawMaximum = true
+				}
+			}
+		}
+	}
+	if !sawMaximum {
+		t.Errorf("expected vulnerabilities.critical.maximum measure leaf in tree: %+v", measures)
+	}
+
+	// Evaluation cases — each entry's Detail (raw bytes) must equal the content
+	// the HCL passed in.
+	if len(captured.Detail.Evaluation) < 2 {
+		t.Fatalf("expected ≥2 evaluation cases, got %d", len(captured.Detail.Evaluation))
+	}
+	var ruleCase *fianu_entities.Case
+	for i := range captured.Detail.Evaluation {
+		if string(captured.Detail.Evaluation[i].Type) == "rule" {
+			ruleCase = &captured.Detail.Evaluation[i]
+			break
+		}
+	}
+	if ruleCase == nil {
+		t.Fatal("expected a 'rule' evaluation case, found none")
+	}
+	if !strings.Contains(string(ruleCase.Detail), "package rule") {
+		t.Errorf("rule case content didn't round-trip: got %q", string(ruleCase.Detail))
+	}
+}
+
+const testAccConfigFullSpec = `
+provider "fianu" {}
+
+resource "fianu_control" "full" {
+  path = "test.full.spec.checkmarx"
+  name = "Full Spec Test Control"
+  detail = {
+    full_name   = "Full Spec Acceptance Control"
+    display_key = "FSPEC"
+    description = "Exercises every detail section."
+
+    documentation = [
+      { title = "Vendor docs", url = "https://example.com/docs" },
+    ]
+
+    results = { fail = true }
+
+    relations = [{
+      domain     = "compliance.controls"
+      collection = "security"
+      path       = "checkmarx.sast"
+      note       = "occurrence"
+      producer   = { type = "plugin", path = "checkmarx" }
+    }]
+
+    assets = [{
+      type = "module"
+      series = [
+        { name = "commit" },
+      ]
+    }]
+
+    policy_template = {
+      measures = [{
+        name = "vulnerabilities"
+        type = "section"
+        children = [{
+          name = "critical"
+          type = "section"
+          children = [{
+            name = "maximum"
+            type = "metric"
+            value = "number"
+          }]
+        }]
+      }]
+    }
+
+    evaluation = [
+      { type = "rule", engine = "opa", label = "rule.rego", content = "package rule\ndefault pass = false\n" },
+      { type = "detail", label = "detail.py", content = "def main(occurrence, context):\n  return {'ok': True}\n" },
+    ]
+
+    config = {
+      scope = "commit"
+    }
+  }
+}
+`
+
+// TestAccFianuControl_EvaluationContent_RoundTrips asserts that an
+// evaluation case's content arrives at the server byte-for-byte. This is the
+// load-bearing contract for `file()`-loaded rule.rego / detail.py.
+func TestAccFianuControl_EvaluationContent_RoundTrips(t *testing.T) {
+	stub := newConsoleStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	wanted := "package rule\nimport future.keywords\n\npass if { input.ok }\n"
+	cfg := fmt.Sprintf(`
+provider "fianu" {}
+resource "fianu_control" "rt" {
+  path = "test.eval.roundtrip"
+  name = "Eval Round-trip"
+  detail = {
+    full_name   = "Eval Round-trip"
+    display_key = "ERT"
+    evaluation  = [{ type = "rule", engine = "opa", content = %q }]
+  }
+}
+`, wanted)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps:                    []resource.TestStep{{Config: cfg}},
+	})
+
+	captured, _ := stub.capturedEntity.Load().(*fianu_entities.Control)
+	if captured == nil {
+		t.Fatal("no entity captured")
+	}
+	if len(captured.Detail.Evaluation) != 1 {
+		t.Fatalf("expected 1 evaluation case, got %d", len(captured.Detail.Evaluation))
+	}
+	got := string(captured.Detail.Evaluation[0].Detail)
+	if got != wanted {
+		t.Errorf("evaluation content drifted on the wire:\nwant %q\ngot  %q", wanted, got)
+	}
+}
+

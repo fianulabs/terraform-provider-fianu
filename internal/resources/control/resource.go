@@ -1,10 +1,18 @@
 // Package control implements the fianu_control Terraform resource.
 //
-// v0.1 surfaces the minimal control-authoring fields users need to write
-// HCL: identity (path, name) and the ControlInfo trio (full_name, display_key,
-// description). The richer ControlDetail sections (evaluation, policy
-// template, relations, assets) are server-managed in v0.1 and will be added
-// to the schema as we promote individual sections to first-class HCL.
+// The schema mirrors the production spec.yaml structure used by official
+// Fianu controls (see /Users/noahkreiger/Documents/fianulabs/core/official-controls/
+// CLAUDE.md for the source-of-truth reference). Every spec.yaml field is a
+// first-class HCL attribute; rego/python content lives in `evaluation[].content`
+// strings (typically loaded via `file("${path.module}/rule.rego")`).
+//
+// Console-deploy parity: the on-disk control package (spec.yaml + rule.rego +
+// detail.py + display.py + tests + fixtures) and an HCL fianu_control resource
+// produce identical Control entities on the server. The CLI tars the directory
+// into a multipart upload; the provider builds the same *fianu_entities.Control
+// in Go and JSON-marshals it. Both paths terminate at
+// pkg/entities_files/control_deployer.go::DeployFromRawContent and honour the
+// same SHA256 idempotency gate at service.go:183-201.
 package control
 
 import (
@@ -49,12 +57,49 @@ type controlModel struct {
 	Detail controlDetailModel `tfsdk:"detail"`
 }
 
-// controlDetailModel is intentionally narrow in v0.1. Each field corresponds
-// to a ControlInfo attribute on the server.
+// controlDetailModel mirrors fianu_entities.ControlDetail. Each section is
+// Optional except the ControlInfo trio (full_name/display_key/description),
+// which are Required so existing v0.1 HCL keeps working.
 type controlDetailModel struct {
 	FullName    types.String `tfsdk:"full_name"`
 	DisplayKey  types.String `tfsdk:"display_key"`
 	Description types.String `tfsdk:"description"`
+
+	Documentation  []documentationModel  `tfsdk:"documentation"`
+	Results        *resultsModel         `tfsdk:"results"`
+	Relations      []relationModel       `tfsdk:"relations"`
+	Assets         []controlAssetModel   `tfsdk:"assets"`
+	PolicyTemplate *policyTemplateModel  `tfsdk:"policy_template"`
+	Evaluation     []evaluationCaseModel `tfsdk:"evaluation"`
+	Config         *configModel          `tfsdk:"config"`
+}
+
+type documentationModel struct {
+	Title types.String `tfsdk:"title"`
+	URL   types.String `tfsdk:"url"`
+}
+
+// resultsModel mirrors entities.Results (which is `map[string]bool` server-side).
+// Exposing it as named fields gives plan-time validation and IDE completion;
+// only set fields are sent on the wire.
+type resultsModel struct {
+	Pass        types.Bool `tfsdk:"pass"`
+	Fail        types.Bool `tfsdk:"fail"`
+	NotRequired types.Bool `tfsdk:"not_required"`
+	InProgress  types.Bool `tfsdk:"in_progress"`
+	Warn        types.Bool `tfsdk:"warn"`
+}
+
+type policyTemplateModel struct {
+	Version  types.String     `tfsdk:"version"`
+	Measures []measureModelL1 `tfsdk:"measures"`
+}
+
+type configModel struct {
+	Scope              types.String `tfsdk:"scope"`
+	Retries            types.Bool   `tfsdk:"retries"`
+	EvidenceSubmission types.Bool   `tfsdk:"evidence_submission"`
+	ManualAttestations types.Bool   `tfsdk:"manual_attestations"`
 }
 
 func (r *controlResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -63,27 +108,76 @@ func (r *controlResource) Metadata(_ context.Context, req resource.MetadataReque
 
 func (r *controlResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	attrs := base.EnvelopeAttributes()
-	attrs["detail"] = schema.SingleNestedAttribute{
-		MarkdownDescription: "Control-specific configuration. v0.1 exposes the ControlInfo trio (`full_name`, `display_key`, `description`); future versions will add evaluation, policy template, and relations as first-class HCL.",
+	attrs["detail"] = detailAttribute()
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Manages a Fianu compliance control. Controls define a compliance requirement together with its evaluation logic, policy template, asset scope, and data-source relations. The schema mirrors the on-disk control-package format used by `fianu console deploy`.",
+		Attributes:          attrs,
+	}
+}
+
+// detailAttribute returns the SingleNestedAttribute for `detail` carrying every
+// section a real control authors. Kept in a builder so the acceptance tests
+// can introspect the schema without instantiating the full resource.
+func detailAttribute() schema.SingleNestedAttribute {
+	return schema.SingleNestedAttribute{
+		MarkdownDescription: "Control payload — mirrors the spec.yaml structure used by `fianu console deploy`.",
 		Required:            true,
 		Attributes: map[string]schema.Attribute{
-			"full_name": schema.StringAttribute{
-				MarkdownDescription: "Display name of the control (e.g., `Code Coverage`).",
-				Required:            true,
-			},
-			"display_key": schema.StringAttribute{
-				MarkdownDescription: "Short uppercase key for the control (e.g., `COV`). Surfaced in dashboards and badges.",
-				Required:            true,
-			},
-			"description": schema.StringAttribute{
-				MarkdownDescription: "Free-form description of what the control validates.",
+			"full_name":   schema.StringAttribute{Required: true, MarkdownDescription: "Display name (e.g., `Static Asset Security Analysis`)."},
+			"display_key": schema.StringAttribute{Required: true, MarkdownDescription: "Short uppercase key (e.g., `CHXST`)."},
+			"description": schema.StringAttribute{Optional: true, MarkdownDescription: "Free-form description of what the control validates."},
+
+			"documentation": schema.ListNestedAttribute{
+				MarkdownDescription: "External documentation links (vendor docs, runbooks).",
 				Optional:            true,
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"title": schema.StringAttribute{Required: true},
+						"url":   schema.StringAttribute{Required: true},
+					},
+				},
+			},
+
+			"results": schema.SingleNestedAttribute{
+				MarkdownDescription: "Default result outcomes when the rule emits each verdict. Maps directly to `entities.Results` (a server-side `map[string]bool`).",
+				Optional:            true,
+				Attributes: map[string]schema.Attribute{
+					"pass":         schema.BoolAttribute{Optional: true},
+					"fail":         schema.BoolAttribute{Optional: true},
+					"not_required": schema.BoolAttribute{Optional: true},
+					"in_progress":  schema.BoolAttribute{Optional: true},
+					"warn":         schema.BoolAttribute{Optional: true},
+				},
+			},
+
+			"relations": relationsAttribute(),
+			"assets":    assetsAttribute(),
+
+			"policy_template": schema.SingleNestedAttribute{
+				MarkdownDescription: "Policy template — the schema users author policies against. `measures` is the recursive measure tree.",
+				Optional:            true,
+				Attributes: map[string]schema.Attribute{
+					"version": schema.StringAttribute{
+						MarkdownDescription: "Optional template version label.",
+						Optional:            true,
+					},
+					"measures": measuresAttribute(),
+				},
+			},
+
+			"evaluation": evaluationAttribute(),
+
+			"config": schema.SingleNestedAttribute{
+				MarkdownDescription: "Operational configuration — scope of evaluation, retry behavior, evidence/attestation flags.",
+				Optional:            true,
+				Attributes: map[string]schema.Attribute{
+					"scope":               schema.StringAttribute{Optional: true},
+					"retries":             schema.BoolAttribute{Optional: true},
+					"evidence_submission": schema.BoolAttribute{Optional: true},
+					"manual_attestations": schema.BoolAttribute{Optional: true},
+				},
 			},
 		},
-	}
-	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manages a Fianu compliance control. Controls define a compliance requirement together with the rules and metadata used to evaluate it.",
-		Attributes:          attrs,
 	}
 }
 
@@ -141,9 +235,6 @@ func (r *controlResource) Read(ctx context.Context, req resource.ReadRequest, re
 
 	fetched, err := r.client.FetchControl(state.Path.ValueString())
 	if err != nil {
-		// Treat fetch errors as "resource gone" so terraform refresh can drop
-		// the resource from state. A more nuanced error/404 split lands once
-		// the SDK exposes typed not-found errors.
 		resp.State.RemoveResource(ctx)
 		return
 	}
@@ -198,9 +289,6 @@ func (r *controlResource) Delete(ctx context.Context, req resource.DeleteRequest
 	}
 }
 
-// ImportState accepts the composite `<entity_type>/<entity_key>` form (the
-// canonical TF resource ID) or a bare entity_key for backward-compat with
-// human-typed import commands.
 func (r *controlResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	key, err := base.ParseID(req.ID, entityType)
 	if err != nil {
@@ -210,32 +298,84 @@ func (r *controlResource) ImportState(ctx context.Context, req resource.ImportSt
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("path"), key)...)
 }
 
-// buildEntity translates the Terraform model into the Go-side Control entity
-// the SDK marshals to JSON. Only fields the v0.1 schema exposes are set;
-// server-managed Detail sub-fields (evaluation, relations, etc.) come from
-// the server's authored definition and are read back via Read.
+// buildEntity translates the Terraform model into the entity-side Control.
+// Mirrors the file→struct mapping that pkg/controls/files.go::BuildControlFromFiles
+// does for on-disk packages — the JSON we send and the YAML the CLI would send
+// produce identical Control rows once they hit the server.
 func buildEntity(plan controlModel) *fianu_entities.Control {
-	var descPtr *string
-	if !plan.Detail.Description.IsNull() && !plan.Detail.Description.IsUnknown() {
-		if v := plan.Detail.Description.ValueString(); v != "" {
-			descPtr = &v
-		}
-	}
 	c := &fianu_entities.Control{}
 	c.Name = plan.Name.ValueString()
 	c.Path = plan.Path.ValueString()
 	c.Type = db_vars.EntityTypeControl
+
 	c.Detail.Control = &fianu_entities.ControlInfo{
 		FullName:    plan.Detail.FullName.ValueString(),
 		DisplayKey:  plan.Detail.DisplayKey.ValueString(),
-		Description: descPtr,
+		Description: stringPtr(plan.Detail.Description),
 	}
+
+	if len(plan.Detail.Documentation) > 0 {
+		c.Detail.Documentation = make([]fianu_entities.Documentation, len(plan.Detail.Documentation))
+		for i, d := range plan.Detail.Documentation {
+			c.Detail.Documentation[i] = fianu_entities.Documentation{
+				Title: d.Title.ValueString(),
+				URL:   d.URL.ValueString(),
+			}
+		}
+	}
+
+	if plan.Detail.Results != nil {
+		c.Detail.Results = buildResults(plan.Detail.Results)
+	}
+
+	c.Detail.Relations = buildRelations(plan.Detail.Relations)
+	c.Detail.Assets = buildAssets(plan.Detail.Assets)
+
+	if plan.Detail.PolicyTemplate != nil {
+		c.Detail.PolicyTemplate = fianu_entities.PolicyTemplate{
+			Version:  plan.Detail.PolicyTemplate.Version.ValueString(),
+			Measures: buildMeasures(plan.Detail.PolicyTemplate.Measures),
+		}
+	}
+
+	c.Detail.Evaluation = buildEvaluationCases(plan.Detail.Evaluation)
+
+	if plan.Detail.Config != nil {
+		c.Detail.Config = fianu_entities.ControlConfig{
+			Scope:              plan.Detail.Config.Scope.ValueString(),
+			Retries:            plan.Detail.Config.Retries.ValueBool(),
+			EvidenceSubmission: plan.Detail.Config.EvidenceSubmission.ValueBool(),
+			ManualAttestations: plan.Detail.Config.ManualAttestations.ValueBool(),
+		}
+	}
+
 	return c
 }
 
-// hydrateFromDeployResponse seeds envelope fields from the server's deploy
-// response. On action="skipped" the metadata is sparse — we fall back to
-// plan-supplied path/name to keep state coherent.
+// buildResults converts the typed model into the server's map[string]bool.
+// Only fields the user explicitly set land in the map — leaving an unset
+// field nil keeps the wire payload minimal and matches what the YAML deploy
+// path produces.
+func buildResults(in *resultsModel) fianu_entities.Results {
+	out := fianu_entities.Results{}
+	if !in.Pass.IsNull() && !in.Pass.IsUnknown() {
+		out["pass"] = in.Pass.ValueBool()
+	}
+	if !in.Fail.IsNull() && !in.Fail.IsUnknown() {
+		out["fail"] = in.Fail.ValueBool()
+	}
+	if !in.NotRequired.IsNull() && !in.NotRequired.IsUnknown() {
+		out["notRequired"] = in.NotRequired.ValueBool()
+	}
+	if !in.InProgress.IsNull() && !in.InProgress.IsUnknown() {
+		out["inProgress"] = in.InProgress.ValueBool()
+	}
+	if !in.Warn.IsNull() && !in.Warn.IsUnknown() {
+		out["warn"] = in.Warn.ValueBool()
+	}
+	return out
+}
+
 func hydrateFromDeployResponse(ctx context.Context, m *controlModel, resp *transportv1.DeployEntityFileResponse) diag.Diagnostics {
 	if resp == nil || resp.Metadata == nil {
 		return nil
@@ -253,16 +393,12 @@ func hydrateFromDeployResponse(ctx context.Context, m *controlModel, resp *trans
 	return m.Hydrate(ctx, env)
 }
 
-// identityModel mirrors EnvelopeIdentitySchema. Kept private because no
-// caller outside the resource needs to construct one.
 type identityModel struct {
 	EntityType types.String `tfsdk:"entity_type"`
 	EntityKey  types.String `tfsdk:"entity_key"`
 	UUID       types.String `tfsdk:"uuid"`
 }
 
-// makeIdentity builds the identity payload from the current model. Resource
-// handlers feed this into resp.Identity.Set after a successful Hydrate.
 func makeIdentity(m *controlModel) identityModel {
 	return identityModel{
 		EntityType: types.StringValue(entityType),
@@ -271,9 +407,12 @@ func makeIdentity(m *controlModel) identityModel {
 	}
 }
 
-// hydrateFromControl pulls envelope fields off a server-side Control entity
-// (returned by FetchControl). Detail fields are mapped back into the typed
-// model so users see in state exactly what the server has stored.
+// hydrateFromControl populates envelope fields and the ControlInfo trio from
+// the server response. The richer Detail sections (documentation, relations,
+// assets, measures, evaluation, config) intentionally stay user-authored —
+// trusting the server's hash-idempotency gate at service.go:183-201 means we
+// don't need to read them back. Reading them would risk drift if the server
+// canonicalises ordering or applies defaults.
 func hydrateFromControl(ctx context.Context, m *controlModel, c *fianu_entities.Control) diag.Diagnostics {
 	if c == nil {
 		return nil

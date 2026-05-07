@@ -2,6 +2,7 @@ package control
 
 import (
 	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
+	fianu "github.com/fianulabs/core/v2/external/pkg/clients/fianu"
 	pkgvariables "github.com/fianulabs/core/v2/external/pkg/variables"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -31,7 +32,7 @@ func evaluationAttribute() schema.ListNestedAttribute {
 		NestedObject: schema.NestedAttributeObject{
 			Attributes: map[string]schema.Attribute{
 				"type": schema.StringAttribute{
-					MarkdownDescription: "Case type. One of `rule`, `rule_test`, `detail`, `display`, `report`, `input`, `data`. Matches the `pkgvariables.ControlResource` constants in core.",
+					MarkdownDescription: "Case type. One of `rule`, `rule_test`, `detail`, `display`, `report`, `input`, `data`.",
 					Required:            true,
 					Validators: []validator.String{
 						stringvalidator.OneOf(
@@ -66,28 +67,22 @@ func evaluationAttribute() schema.ListNestedAttribute {
 	}
 }
 
-// buildEvaluationCases translates HCL-side evaluation entries into the
-// entity-side Case slice. The on-the-wire encoding is raw bytes; the server
-// accepts both raw and base64 (see fianu_entities.Case.UnmarshalJSON), so we
-// pick raw to keep diffs readable in any captured logs.
+// buildEvaluationCases delegates the actual Case construction to the SDK's
+// fianu.NewCase so the wire shape lives in one place. The `enabled=false`
+// override is applied here because the SDK constructor defaults to true.
 func buildEvaluationCases(in []evaluationCaseModel) []fianu_entities.Case {
 	if len(in) == 0 {
 		return nil
 	}
 	out := make([]fianu_entities.Case, len(in))
 	for i, c := range in {
-		body := fianu_entities.CaseBody{
-			Type:  pkgvariables.ControlResource(c.Type.ValueString()),
-			Label: c.Label.ValueString(),
-		}
+		out[i] = fianu.NewCase(
+			pkgvariables.ControlResource(c.Type.ValueString()),
+			c.Label.ValueString(),
+			[]byte(c.Content.ValueString()),
+		)
 		if !c.Enabled.IsNull() && !c.Enabled.IsUnknown() {
-			body.Enabled = c.Enabled.ValueBool()
-		} else {
-			body.Enabled = true
-		}
-		out[i] = fianu_entities.Case{
-			CaseBody: body,
-			Detail:   []byte(c.Content.ValueString()),
+			out[i].Enabled = c.Enabled.ValueBool()
 		}
 	}
 	return out

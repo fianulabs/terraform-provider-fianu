@@ -207,10 +207,15 @@ func (r *controlResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
+	entity, err := buildEntity(plan)
+	if err != nil {
+		resp.Diagnostics.AddError("invalid control configuration", err.Error())
+		return
+	}
 	deployResp, err := r.client.Deploy(ctx, fianu.DeployRequest{
 		EntityType: db_vars.EntityTypeControl,
 		Path:       plan.Path.ValueString(),
-		Entity:     buildEntity(plan),
+		Entity:     entity,
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("deploy control failed", err.Error())
@@ -254,10 +259,15 @@ func (r *controlResource) Update(ctx context.Context, req resource.UpdateRequest
 		return
 	}
 
+	entity, err := buildEntity(plan)
+	if err != nil {
+		resp.Diagnostics.AddError("invalid control configuration", err.Error())
+		return
+	}
 	deployResp, err := r.client.Deploy(ctx, fianu.DeployRequest{
 		EntityType: db_vars.EntityTypeControl,
 		Path:       plan.Path.ValueString(),
-		Entity:     buildEntity(plan),
+		Entity:     entity,
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("deploy control failed", err.Error())
@@ -298,81 +308,74 @@ func (r *controlResource) ImportState(ctx context.Context, req resource.ImportSt
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("path"), key)...)
 }
 
-// buildEntity translates the Terraform model into the entity-side Control.
-// Mirrors the file→struct mapping that pkg/controls/files.go::BuildControlFromFiles
-// does for on-disk packages — the JSON we send and the YAML the CLI would send
-// produce identical Control rows once they hit the server.
-func buildEntity(plan controlModel) *fianu_entities.Control {
-	c := &fianu_entities.Control{}
-	c.Name = plan.Name.ValueString()
-	c.Path = plan.Path.ValueString()
-	c.Type = db_vars.EntityTypeControl
-
-	c.Detail.Control = &fianu_entities.ControlInfo{
-		FullName:    plan.Detail.FullName.ValueString(),
-		DisplayKey:  plan.Detail.DisplayKey.ValueString(),
-		Description: stringPtr(plan.Detail.Description),
-	}
-
-	if len(plan.Detail.Documentation) > 0 {
-		c.Detail.Documentation = make([]fianu_entities.Documentation, len(plan.Detail.Documentation))
-		for i, d := range plan.Detail.Documentation {
-			c.Detail.Documentation[i] = fianu_entities.Documentation{
-				Title: d.Title.ValueString(),
-				URL:   d.URL.ValueString(),
-			}
-		}
-	}
+// buildEntity translates the Terraform model into the entity-side Control by
+// delegating to fianu.NewControlBuilder — the SDK builder is the single
+// source of truth for *fianu_entities.Control construction so that the
+// on-disk YAML deployer (pkg/controls/files.go::BuildControlFromFiles) and
+// this provider can converge on one path.
+func buildEntity(plan controlModel) (*fianu_entities.Control, error) {
+	b := fianu.NewControlBuilder(plan.Path.ValueString(), plan.Name.ValueString()).
+		WithControlInfo(
+			plan.Detail.FullName.ValueString(),
+			plan.Detail.DisplayKey.ValueString(),
+			stringPtr(plan.Detail.Description),
+		).
+		WithDocumentation(toDocumentations(plan.Detail.Documentation)...).
+		WithEvaluation(buildEvaluationCases(plan.Detail.Evaluation)...)
 
 	if plan.Detail.Results != nil {
-		c.Detail.Results = buildResults(plan.Detail.Results)
+		b = b.WithResults(toResults(plan.Detail.Results))
 	}
-
-	c.Detail.Relations = buildRelations(plan.Detail.Relations)
-	c.Detail.Assets = buildAssets(plan.Detail.Assets)
-
+	for _, rel := range plan.Detail.Relations {
+		b = b.WithRelation(rel.toRelation())
+	}
+	for _, a := range plan.Detail.Assets {
+		b = b.WithAsset(a.toAsset())
+	}
 	if plan.Detail.PolicyTemplate != nil {
-		c.Detail.PolicyTemplate = fianu_entities.PolicyTemplate{
-			Version:  plan.Detail.PolicyTemplate.Version.ValueString(),
-			Measures: buildMeasures(plan.Detail.PolicyTemplate.Measures),
-		}
+		b = b.WithMeasures(buildMeasures(plan.Detail.PolicyTemplate.Measures)).
+			WithPolicyTemplateVersion(plan.Detail.PolicyTemplate.Version.ValueString())
 	}
-
-	c.Detail.Evaluation = buildEvaluationCases(plan.Detail.Evaluation)
-
 	if plan.Detail.Config != nil {
-		c.Detail.Config = fianu_entities.ControlConfig{
+		b = b.WithConfig(fianu_entities.ControlConfig{
 			Scope:              plan.Detail.Config.Scope.ValueString(),
 			Retries:            plan.Detail.Config.Retries.ValueBool(),
 			EvidenceSubmission: plan.Detail.Config.EvidenceSubmission.ValueBool(),
 			ManualAttestations: plan.Detail.Config.ManualAttestations.ValueBool(),
-		}
+		})
 	}
 
-	return c
+	return b.Build()
 }
 
-// buildResults converts the typed model into the server's map[string]bool.
-// Only fields the user explicitly set land in the map — leaving an unset
-// field nil keeps the wire payload minimal and matches what the YAML deploy
-// path produces.
-func buildResults(in *resultsModel) fianu_entities.Results {
+// toDocumentations is plumbing: the model and entity field shapes match
+// 1:1, so the loop is just types.String → string.
+func toDocumentations(in []documentationModel) []fianu_entities.Documentation {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]fianu_entities.Documentation, len(in))
+	for i, d := range in {
+		out[i] = fianu_entities.Documentation{Title: d.Title.ValueString(), URL: d.URL.ValueString()}
+	}
+	return out
+}
+
+// toResults converts the typed model into the server's map[string]bool. The
+// keys are the entities.ResultKey* constants — the only place magic strings
+// for these keys appear in the codebase.
+func toResults(in *resultsModel) fianu_entities.Results {
 	out := fianu_entities.Results{}
-	if !in.Pass.IsNull() && !in.Pass.IsUnknown() {
-		out["pass"] = in.Pass.ValueBool()
+	setIf := func(key string, v types.Bool) {
+		if !v.IsNull() && !v.IsUnknown() {
+			out[key] = v.ValueBool()
+		}
 	}
-	if !in.Fail.IsNull() && !in.Fail.IsUnknown() {
-		out["fail"] = in.Fail.ValueBool()
-	}
-	if !in.NotRequired.IsNull() && !in.NotRequired.IsUnknown() {
-		out["notRequired"] = in.NotRequired.ValueBool()
-	}
-	if !in.InProgress.IsNull() && !in.InProgress.IsUnknown() {
-		out["inProgress"] = in.InProgress.ValueBool()
-	}
-	if !in.Warn.IsNull() && !in.Warn.IsUnknown() {
-		out["warn"] = in.Warn.ValueBool()
-	}
+	setIf(fianu_entities.ResultKeyPass, in.Pass)
+	setIf(fianu_entities.ResultKeyFail, in.Fail)
+	setIf(fianu_entities.ResultKeyNotRequired, in.NotRequired)
+	setIf(fianu_entities.ResultKeyInProgress, in.InProgress)
+	setIf(fianu_entities.ResultKeyWarn, in.Warn)
 	return out
 }
 

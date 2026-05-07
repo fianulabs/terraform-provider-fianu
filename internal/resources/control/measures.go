@@ -18,49 +18,97 @@ import (
 // `policy_template.measures` entries or compose via Terraform `locals`.
 const maxMeasureDepth = 5
 
-// measureModelL5 is the leaf level — it's the only level without `children`,
-// which terminates the recursion.
-type measureModelL5 struct {
+// measureNode is the shape every level of the model exposes. Defining it
+// once means the conversion to fianu_entities.Measure lives in a single
+// recursive helper instead of five copy-pasted functions.
+type measureNode interface {
+	core() (name, typ, valueStr string, descPtr *string)
+	childMeasures() []fianu_entities.Measure
+}
+
+func convertMeasureNode(n measureNode) fianu_entities.Measure {
+	name, typ, val, desc := n.core()
+	m := fianu_entities.Measure{
+		Name:        name,
+		Type:        typ,
+		Description: desc,
+		Children:    n.childMeasures(),
+	}
+	if val != "" {
+		m.Value = val
+	}
+	return m
+}
+
+// measureModelLeaf carries the four fields every level shares — extracted so
+// each level only declares the children type that varies.
+type measureModelLeaf struct {
 	Name        types.String `tfsdk:"name"`
 	Type        types.String `tfsdk:"type"`
 	Value       types.String `tfsdk:"value"`
 	Description types.String `tfsdk:"description"`
 }
 
-type measureModelL4 struct {
-	Name        types.String     `tfsdk:"name"`
-	Type        types.String     `tfsdk:"type"`
-	Value       types.String     `tfsdk:"value"`
-	Description types.String     `tfsdk:"description"`
-	Children    []measureModelL5 `tfsdk:"children"`
+func (m measureModelLeaf) core() (string, string, string, *string) {
+	return m.Name.ValueString(), m.Type.ValueString(), valueStringOrEmpty(m.Value), stringPtr(m.Description)
 }
+
+type measureModelL5 struct{ measureModelLeaf }
+
+func (m measureModelL5) childMeasures() []fianu_entities.Measure { return nil }
+
+type measureModelL4 struct {
+	measureModelLeaf
+	Children []measureModelL5 `tfsdk:"children"`
+}
+
+func (m measureModelL4) childMeasures() []fianu_entities.Measure { return walk(m.Children) }
 
 type measureModelL3 struct {
-	Name        types.String     `tfsdk:"name"`
-	Type        types.String     `tfsdk:"type"`
-	Value       types.String     `tfsdk:"value"`
-	Description types.String     `tfsdk:"description"`
-	Children    []measureModelL4 `tfsdk:"children"`
+	measureModelLeaf
+	Children []measureModelL4 `tfsdk:"children"`
 }
+
+func (m measureModelL3) childMeasures() []fianu_entities.Measure { return walk(m.Children) }
 
 type measureModelL2 struct {
-	Name        types.String     `tfsdk:"name"`
-	Type        types.String     `tfsdk:"type"`
-	Value       types.String     `tfsdk:"value"`
-	Description types.String     `tfsdk:"description"`
-	Children    []measureModelL3 `tfsdk:"children"`
+	measureModelLeaf
+	Children []measureModelL3 `tfsdk:"children"`
 }
+
+func (m measureModelL2) childMeasures() []fianu_entities.Measure { return walk(m.Children) }
 
 type measureModelL1 struct {
-	Name        types.String     `tfsdk:"name"`
-	Type        types.String     `tfsdk:"type"`
-	Value       types.String     `tfsdk:"value"`
-	Description types.String     `tfsdk:"description"`
-	Children    []measureModelL2 `tfsdk:"children"`
+	measureModelLeaf
+	Children []measureModelL2 `tfsdk:"children"`
 }
 
-// measureLeafFields are the fields every level of the measures tree carries.
-// Returned as a fresh map so callers can mutate or augment per level.
+func (m measureModelL1) childMeasures() []fianu_entities.Measure { return walk(m.Children) }
+
+// walk converts a slice of any measure level into the entity-side slice.
+// Generic over the level type; one function replaces the five buildMeasures*
+// helpers from the previous revision.
+func walk[T measureNode](in []T) []fianu_entities.Measure {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]fianu_entities.Measure, len(in))
+	for i, m := range in {
+		out[i] = convertMeasureNode(m)
+	}
+	return out
+}
+
+// buildMeasures is the public entry point used by resource.go. Stays a thin
+// wrapper so callers don't have to know about the level types.
+func buildMeasures(in []measureModelL1) []fianu_entities.Measure {
+	return walk(in)
+}
+
+// measureLeafFields returns the fields every level of the measures tree
+// carries. The OneOf validators reference the typed enum constants in core
+// (entities.AllMeasureTypes / AllMeasureValues) so the valid set is one
+// source of truth.
 func measureLeafFields() map[string]schema.Attribute {
 	return map[string]schema.Attribute{
 		"name": schema.StringAttribute{
@@ -71,14 +119,14 @@ func measureLeafFields() map[string]schema.Attribute {
 			MarkdownDescription: "Either `section` (a grouping with `children`) or `metric` (a leaf carrying a `value`).",
 			Required:            true,
 			Validators: []validator.String{
-				stringvalidator.OneOf("section", "metric"),
+				stringvalidator.OneOf(fianu_entities.AllMeasureTypes()...),
 			},
 		},
 		"value": schema.StringAttribute{
 			MarkdownDescription: "Value type for `metric` measures. One of `bool`, `number`, `string`, `array.string`. Ignored for `section` measures.",
 			Optional:            true,
 			Validators: []validator.String{
-				stringvalidator.OneOf("bool", "number", "string", "array.string"),
+				stringvalidator.OneOf(fianu_entities.AllMeasureValues()...),
 			},
 		},
 		"description": schema.StringAttribute{
@@ -88,43 +136,14 @@ func measureLeafFields() map[string]schema.Attribute {
 	}
 }
 
-// measuresAttribute returns the top-level `measures` ListNestedAttribute with
-// five nested levels of `children`. The verbosity is the cost of static schema
-// validation across the whole tree — Terraform diffs each leaf cleanly.
+// measuresAttribute returns the top-level `measures` ListNestedAttribute
+// composed from the same leaf fields at each of five depths.
 func measuresAttribute() schema.ListNestedAttribute {
 	level5 := schema.NestedAttributeObject{Attributes: measureLeafFields()}
-
-	l4Fields := measureLeafFields()
-	l4Fields["children"] = schema.ListNestedAttribute{
-		MarkdownDescription: "Nested measure children (level 5 — leaf).",
-		Optional:            true,
-		NestedObject:        level5,
-	}
-	level4 := schema.NestedAttributeObject{Attributes: l4Fields}
-
-	l3Fields := measureLeafFields()
-	l3Fields["children"] = schema.ListNestedAttribute{
-		MarkdownDescription: "Nested measure children (level 4).",
-		Optional:            true,
-		NestedObject:        level4,
-	}
-	level3 := schema.NestedAttributeObject{Attributes: l3Fields}
-
-	l2Fields := measureLeafFields()
-	l2Fields["children"] = schema.ListNestedAttribute{
-		MarkdownDescription: "Nested measure children (level 3).",
-		Optional:            true,
-		NestedObject:        level3,
-	}
-	level2 := schema.NestedAttributeObject{Attributes: l2Fields}
-
-	l1Fields := measureLeafFields()
-	l1Fields["children"] = schema.ListNestedAttribute{
-		MarkdownDescription: "Nested measure children (level 2).",
-		Optional:            true,
-		NestedObject:        level2,
-	}
-	level1 := schema.NestedAttributeObject{Attributes: l1Fields}
+	level4 := schema.NestedAttributeObject{Attributes: withChildren(measureLeafFields(), level5, "level 5 — leaf")}
+	level3 := schema.NestedAttributeObject{Attributes: withChildren(measureLeafFields(), level4, "level 4")}
+	level2 := schema.NestedAttributeObject{Attributes: withChildren(measureLeafFields(), level3, "level 3")}
+	level1 := schema.NestedAttributeObject{Attributes: withChildren(measureLeafFields(), level2, "level 2")}
 
 	return schema.ListNestedAttribute{
 		MarkdownDescription: "Hierarchical policy measure tree. Sections group related metrics; metrics carry a typed `value` (bool/number/string/array.string). Bounded to 5 levels of nesting.",
@@ -133,98 +152,22 @@ func measuresAttribute() schema.ListNestedAttribute {
 	}
 }
 
-// buildMeasures converts the typed Terraform model back into the entity-side
-// Measure structs the SDK expects. Each level recurses one shallower into the
-// model.
-func buildMeasures(in []measureModelL1) []fianu_entities.Measure {
-	if len(in) == 0 {
-		return nil
+// withChildren attaches a `children` ListNestedAttribute at the next-deeper
+// level. Pulling this out collapses five copies of the same wiring into one.
+func withChildren(fields map[string]schema.Attribute, child schema.NestedAttributeObject, label string) map[string]schema.Attribute {
+	fields["children"] = schema.ListNestedAttribute{
+		MarkdownDescription: "Nested measure children (" + label + ").",
+		Optional:            true,
+		NestedObject:        child,
 	}
-	out := make([]fianu_entities.Measure, len(in))
-	for i, m := range in {
-		out[i] = fianu_entities.Measure{
-			Name:        m.Name.ValueString(),
-			Type:        m.Type.ValueString(),
-			Value:       valueOrNil(m.Value),
-			Description: stringPtr(m.Description),
-			Children:    buildMeasuresL2(m.Children),
-		}
-	}
-	return out
+	return fields
 }
 
-func buildMeasuresL2(in []measureModelL2) []fianu_entities.Measure {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]fianu_entities.Measure, len(in))
-	for i, m := range in {
-		out[i] = fianu_entities.Measure{
-			Name:        m.Name.ValueString(),
-			Type:        m.Type.ValueString(),
-			Value:       valueOrNil(m.Value),
-			Description: stringPtr(m.Description),
-			Children:    buildMeasuresL3(m.Children),
-		}
-	}
-	return out
-}
-
-func buildMeasuresL3(in []measureModelL3) []fianu_entities.Measure {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]fianu_entities.Measure, len(in))
-	for i, m := range in {
-		out[i] = fianu_entities.Measure{
-			Name:        m.Name.ValueString(),
-			Type:        m.Type.ValueString(),
-			Value:       valueOrNil(m.Value),
-			Description: stringPtr(m.Description),
-			Children:    buildMeasuresL4(m.Children),
-		}
-	}
-	return out
-}
-
-func buildMeasuresL4(in []measureModelL4) []fianu_entities.Measure {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]fianu_entities.Measure, len(in))
-	for i, m := range in {
-		out[i] = fianu_entities.Measure{
-			Name:        m.Name.ValueString(),
-			Type:        m.Type.ValueString(),
-			Value:       valueOrNil(m.Value),
-			Description: stringPtr(m.Description),
-			Children:    buildMeasuresL5(m.Children),
-		}
-	}
-	return out
-}
-
-func buildMeasuresL5(in []measureModelL5) []fianu_entities.Measure {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]fianu_entities.Measure, len(in))
-	for i, m := range in {
-		out[i] = fianu_entities.Measure{
-			Name:        m.Name.ValueString(),
-			Type:        m.Type.ValueString(),
-			Value:       valueOrNil(m.Value),
-			Description: stringPtr(m.Description),
-		}
-	}
-	return out
-}
-
-// valueOrNil returns the string value or nil so the JSON marshaler emits
-// nothing for unset value fields (e.g., on `section` measures).
-func valueOrNil(v types.String) interface{} {
+// valueStringOrEmpty returns the string value or "" so callers can quickly
+// distinguish "set" from "unset" without needing the types.String wrapper.
+func valueStringOrEmpty(v types.String) string {
 	if v.IsNull() || v.IsUnknown() {
-		return nil
+		return ""
 	}
 	return v.ValueString()
 }

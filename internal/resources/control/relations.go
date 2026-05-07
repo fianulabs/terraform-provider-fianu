@@ -11,11 +11,11 @@ import (
 // DBKeyResolver resolves them at deploy time (see ControlRelations.Resolve in
 // core).
 type relationModel struct {
-	Domain     types.String `tfsdk:"domain"`
-	Collection types.String `tfsdk:"collection"`
-	Path       types.String `tfsdk:"path"`
-	Note       types.String `tfsdk:"note"`
-	IsPrimary  types.Bool   `tfsdk:"is_primary"`
+	Domain     types.String   `tfsdk:"domain"`
+	Collection types.String   `tfsdk:"collection"`
+	Path       types.String   `tfsdk:"path"`
+	Note       types.String   `tfsdk:"note"`
+	IsPrimary  types.Bool     `tfsdk:"is_primary"`
 	Producer   *producerModel `tfsdk:"producer"`
 }
 
@@ -69,35 +69,26 @@ func relationsAttribute() schema.ListNestedAttribute {
 	}
 }
 
-// buildRelations translates HCL relations into entity-side ControlRelationInput.
-func buildRelations(in []relationModel) []fianu_entities.ControlRelationInput {
-	if len(in) == 0 {
-		return nil
+// toRelation maps one HCL row to the entity-side ControlRelationInput.
+func (r relationModel) toRelation() fianu_entities.ControlRelationInput {
+	rel := fianu_entities.ControlRelationInput{
+		Domain:     r.Domain.ValueString(),
+		Collection: r.Collection.ValueString(),
+		IsPrimary:  r.IsPrimary.ValueBool(),
 	}
-	out := make([]fianu_entities.ControlRelationInput, len(in))
-	for i, r := range in {
-		rel := fianu_entities.ControlRelationInput{
-			Domain:     r.Domain.ValueString(),
-			Collection: r.Collection.ValueString(),
-			IsPrimary:  r.IsPrimary.ValueBool(),
-		}
-		if !r.Path.IsNull() && !r.Path.IsUnknown() {
-			s := r.Path.ValueString()
-			rel.Path = &s
-		}
-		if !r.Note.IsNull() && !r.Note.IsUnknown() {
-			s := r.Note.ValueString()
-			rel.Note = &s
-		}
-		if r.Producer != nil {
-			t := r.Producer.Type.ValueString()
-			p := r.Producer.Path.ValueString()
-			rel.Producer = &fianu_entities.ControlRelationProducer{
-				Type: t,
-				Path: p,
-			}
-		}
-		out[i] = rel
+	if !r.Path.IsNull() && !r.Path.IsUnknown() {
+		s := r.Path.ValueString()
+		rel.Path = &s
 	}
-	return out
+	if !r.Note.IsNull() && !r.Note.IsUnknown() {
+		s := r.Note.ValueString()
+		rel.Note = &s
+	}
+	if r.Producer != nil {
+		rel.Producer = &fianu_entities.ControlRelationProducer{
+			Type: r.Producer.Type.ValueString(),
+			Path: r.Producer.Path.ValueString(),
+		}
+	}
+	return rel
 }

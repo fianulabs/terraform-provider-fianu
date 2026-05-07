@@ -3,7 +3,9 @@ package control
 import (
 	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
 	db_vars "github.com/fianulabs/core/v2/external/db/variables"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -28,16 +30,22 @@ func assetsAttribute() schema.ListNestedAttribute {
 		NestedObject: schema.NestedAttributeObject{
 			Attributes: map[string]schema.Attribute{
 				"type": schema.StringAttribute{
-					MarkdownDescription: "Asset type — `module`, `repository`, `artifact`, etc.",
+					MarkdownDescription: "Asset type — `module`, `repository`, `artifact`, `application`, etc.",
 					Required:            true,
+					Validators: []validator.String{
+						stringvalidator.OneOf(db_vars.AllAssetTypes()...),
+					},
 				},
 				"target_asset_type_uuid": schema.StringAttribute{
 					MarkdownDescription: "Server-side UUID of the asset type. Optional; resolved from `type` when omitted.",
 					Optional:            true,
 				},
 				"cardinality": schema.StringAttribute{
-					MarkdownDescription: "`single` or `multiple`. Defaults to multiple when unset.",
+					MarkdownDescription: "Applicability scope. One of `only`, `any`, `a`, `all`. Defaults to `all` server-side.",
 					Optional:            true,
+					Validators: []validator.String{
+						stringvalidator.OneOf(db_vars.AllCardinalities()...),
+					},
 				},
 				"series": schema.ListNestedAttribute{
 					MarkdownDescription: "Version series — when this asset type produces evaluable events.",
@@ -60,30 +68,25 @@ func assetsAttribute() schema.ListNestedAttribute {
 	}
 }
 
-func buildAssets(in []controlAssetModel) []fianu_entities.ControlAsset {
-	if len(in) == 0 {
-		return nil
+// toAsset maps one HCL row to the entity-side ControlAsset. The shape is
+// thin enough that a one-pass copy is clearer than a builder.
+func (a controlAssetModel) toAsset() fianu_entities.ControlAsset {
+	asset := fianu_entities.ControlAsset{
+		Type:        db_vars.AssetType(a.Type.ValueString()),
+		Cardinality: db_vars.Cardinality(a.Cardinality.ValueString()),
 	}
-	out := make([]fianu_entities.ControlAsset, len(in))
-	for i, a := range in {
-		asset := fianu_entities.ControlAsset{
-			Type:        db_vars.AssetType(a.Type.ValueString()),
-			Cardinality: db_vars.Cardinality(a.Cardinality.ValueString()),
-		}
-		if !a.TargetAssetTypeUUID.IsNull() && !a.TargetAssetTypeUUID.IsUnknown() {
-			s := a.TargetAssetTypeUUID.ValueString()
-			asset.TargetAssetTypeUUID = &s
-		}
-		if len(a.Series) > 0 {
-			asset.Series = make([]fianu_entities.ControlAssetSeries, len(a.Series))
-			for j, s := range a.Series {
-				asset.Series[j] = fianu_entities.ControlAssetSeries{
-					Name: db_vars.SeriesName(s.Name.ValueString()),
-					Code: db_vars.SeriesCode(s.Code.ValueInt64()),
-				}
+	if !a.TargetAssetTypeUUID.IsNull() && !a.TargetAssetTypeUUID.IsUnknown() {
+		s := a.TargetAssetTypeUUID.ValueString()
+		asset.TargetAssetTypeUUID = &s
+	}
+	if len(a.Series) > 0 {
+		asset.Series = make([]fianu_entities.ControlAssetSeries, len(a.Series))
+		for j, s := range a.Series {
+			asset.Series[j] = fianu_entities.ControlAssetSeries{
+				Name: db_vars.SeriesName(s.Name.ValueString()),
+				Code: db_vars.SeriesCode(s.Code.ValueInt64()),
 			}
 		}
-		out[i] = asset
 	}
-	return out
+	return asset
 }

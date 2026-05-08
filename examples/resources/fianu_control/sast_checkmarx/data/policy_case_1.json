@@ -1,0 +1,10 @@
+{
+	"vulnerabilities": {
+		"critical": {
+			"maximum": 0
+		},
+		"high": {
+			"maximum": 5
+		}
+	}
+}

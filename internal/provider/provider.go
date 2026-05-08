@@ -11,7 +11,9 @@ import (
 
 	fianu "github.com/fianulabs/core/v2/external/pkg/clients/fianu"
 	"github.com/fianulabs/core/v2/external/pkg/connections"
+	controltest "github.com/fianulabs/terraform-provider-fianu/internal/actions/control_test"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/control"
+	"github.com/hashicorp/terraform-plugin-framework/action"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -32,8 +34,11 @@ const (
 )
 
 // Compile-time interface checks lock down what the provider must implement.
+// ProviderWithActions is the framework's extension point for actions —
+// imperative, run-on-demand operations like fianu_control_test.
 var (
-	_ provider.Provider = (*fianuProvider)(nil)
+	_ provider.Provider            = (*fianuProvider)(nil)
+	_ provider.ProviderWithActions = (*fianuProvider)(nil)
 )
 
 // New returns a provider factory suitable for providerserver.Serve. The
@@ -145,6 +150,15 @@ func (p *fianuProvider) DataSources(_ context.Context) []func() datasource.DataS
 	// Data sources land alongside their resources in v0.2; v0.1 ships
 	// resource-only.
 	return nil
+}
+
+// Actions returns the imperative, run-on-demand operations the provider
+// exposes. Wired through the ProviderWithActions extension interface
+// (terraform-plugin-framework v1.16+, Terraform CLI v1.14+).
+func (p *fianuProvider) Actions(_ context.Context) []func() action.Action {
+	return []func() action.Action{
+		controltest.NewAction,
+	}
 }
 
 // stringOrEnv resolves the configured value, falling back to the environment

@@ -12,6 +12,47 @@
 # same `pkg/entities_files/control_deployer.go::DeployFromRawContent` and
 # honour the same SHA256 idempotency gate.
 
+# DRY the evaluation cases into a local so the resource and the
+# fianu_control_test action below share one source of truth.
+locals {
+  sast_checkmarx_evaluation = [
+    {
+      type    = "rule"
+      engine  = "opa"
+      label   = "rule.rego"
+      content = file("${path.module}/rule.rego")
+    },
+    {
+      type    = "rule_test"
+      label   = "rule_test.rego"
+      content = file("${path.module}/rule_test.rego")
+    },
+    {
+      type    = "detail"
+      label   = "detail.py"
+      content = file("${path.module}/detail.py")
+    },
+    {
+      type    = "display"
+      label   = "display.py"
+      content = file("${path.module}/display.py")
+    },
+    # Test fixtures — vendored from the source control's input/ + data/.
+    # The server's /entities/artifacts/test endpoint runs the rule case
+    # above against each input/data pair and returns a JUnit-shaped report.
+    {
+      type    = "input"
+      label   = "occ_case_1.json"
+      content = file("${path.module}/input/occ_case_1.json")
+    },
+    {
+      type    = "data"
+      label   = "policy_case_1.json"
+      content = file("${path.module}/data/policy_case_1.json")
+    },
+  ]
+}
+
 resource "fianu_control" "sast_checkmarx" {
   path = "checkmarx.sast.vulnerabilities"
   name = "SAST"
@@ -95,28 +136,29 @@ resource "fianu_control" "sast_checkmarx" {
       ]
     }
 
-    evaluation = [
-      {
-        type    = "rule"
-        engine  = "opa"
-        label   = "rule.rego"
-        content = file("${path.module}/rule.rego")
-      },
-      {
-        type    = "rule_test"
-        label   = "rule_test.rego"
-        content = file("${path.module}/rule_test.rego")
-      },
-      {
-        type    = "detail"
-        label   = "detail.py"
-        content = file("${path.module}/detail.py")
-      },
-      {
-        type    = "display"
-        label   = "display.py"
-        content = file("${path.module}/display.py")
-      },
-    ]
+    evaluation = local.sast_checkmarx_evaluation
+  }
+
+  # When the control changes, automatically run its rego rules against the
+  # vendored input/data fixtures. Failed cases surface as apply errors;
+  # successful runs stream per-case "✓ occ_case_1" progress events to the
+  # CLI. Equivalent to `fianu console test controls ./checkmarx.sast.vulnerabilities/`.
+  lifecycle {
+    action_triggers {
+      events  = [after_create, after_update]
+      actions = [action.fianu_control_test.sast_checkmarx]
+    }
+  }
+}
+
+# Run on demand:
+#   terraform action fianu_control_test.sast_checkmarx
+#
+# Or watch it run as part of every apply via the action_triggers above.
+action "fianu_control_test" "sast_checkmarx" {
+  config {
+    path       = "checkmarx.sast.vulnerabilities"
+    name       = "SAST"
+    evaluation = local.sast_checkmarx_evaluation
   }
 }

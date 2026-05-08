@@ -1,0 +1,20 @@
+{
+	"required": true,
+	"tests": {
+		"failed": {
+			"maximum": 1,
+			"exceptions": []
+		},
+		"error": {
+			"maximum": 1,
+			"exceptions": []
+		},
+		"skipped": {
+			"maximum": 1,
+			"exceptions": []
+		},
+		"total": {
+			"minimum": 1
+		}
+	}
+}

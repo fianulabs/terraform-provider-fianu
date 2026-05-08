@@ -99,6 +99,68 @@ The spec.yaml fields (`relations`, `assets`, `policy_template.measures`,
 `results`, `documentation`, `config`) are first-class HCL — every section
 is typed, validated at plan time, and diffs cleanly.
 
+### Testing controls — `fianu_control_test` action
+
+The provider exposes a [Terraform Action](https://developer.hashicorp.com/terraform/plugin/framework/actions)
+(framework v1.16+, Terraform CLI v1.14+) that runs a control's rego rules
+against its `input`/`data` fixtures via `POST /entities/artifacts/test`.
+Same wire contract as `fianu console test controls ./...`; same JUnit-shaped
+report streamed back as per-case progress events.
+
+```hcl
+locals {
+  evaluation = [
+    { type = "rule",   engine = "opa", content = file("${path.module}/rule.rego") },
+    { type = "detail",                 content = file("${path.module}/detail.py") },
+    { type = "input",  content = file("${path.module}/input/occ_case_1.json") },
+    { type = "data",   content = file("${path.module}/data/policy_case_1.json") },
+  ]
+}
+
+resource "fianu_control" "sast" {
+  path = "checkmarx.sast.vulnerabilities"
+  name = "SAST"
+  detail = {
+    full_name   = "Static Asset Security Analysis"
+    display_key = "CHXST"
+    evaluation  = local.evaluation   # rules + fixtures shared with the action
+    # …rest of detail…
+  }
+
+  # Run rego tests after every create/update.
+  lifecycle {
+    action_triggers {
+      events  = [after_create, after_update]
+      actions = [action.fianu_control_test.sast]
+    }
+  }
+}
+
+action "fianu_control_test" "sast" {
+  config {
+    path       = "checkmarx.sast.vulnerabilities"
+    name       = "SAST"
+    evaluation = local.evaluation
+  }
+}
+```
+
+Run on demand:
+
+```bash
+terraform action fianu_control_test.sast
+```
+
+Or watch it run as part of `terraform apply` — the `lifecycle.action_triggers`
+block above invokes it after every create/update of the resource. Failed
+test cases surface as apply errors; successful runs stream `✓ occ_case_1`
+progress events to the CLI.
+
+All three vendored examples (`sast_checkmarx`, `unit_tests_pytest`,
+`container_scan_wiz`) now ship with their `input/`/`data/` fixtures and
+matching action blocks — copy any of them as a complete working starting
+point.
+
 ### How this maps to `fianu console deploy`
 
 ```

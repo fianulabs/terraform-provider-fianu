@@ -6,6 +6,21 @@
 # error, skipped) plus an `array.string` value for exception lists, and a
 # total minimum. Also shows `documentation` and `results.not_required`.
 
+locals {
+  unit_tests_pytest_evaluation = [
+    { type = "rule",      engine = "opa", label = "rule.rego",      content = file("${path.module}/rule.rego") },
+    { type = "rule_test",                 label = "rule_test.rego", content = file("${path.module}/rule_test.rego") },
+    { type = "detail",                    label = "detail.py",      content = file("${path.module}/detail.py") },
+    { type = "display",                   label = "display.py",     content = file("${path.module}/display.py") },
+    # Test fixtures vendored from the source control. The pytest source
+    # provides two policy variants — strict and lenient — to exercise
+    # different threshold combinations.
+    { type = "input", label = "occ_case_1.json",    content = file("${path.module}/input/occ_case_1.json") },
+    { type = "data",  label = "policy_case_1.json", content = file("${path.module}/data/policy_case_1.json") },
+    { type = "data",  label = "policy_case_2.json", content = file("${path.module}/data/policy_case_2.json") },
+  ]
+}
+
 resource "fianu_control" "unit_tests_pytest" {
   path = "testing.unit.pytest.results"
   name = "Unit Tests"
@@ -108,11 +123,21 @@ resource "fianu_control" "unit_tests_pytest" {
       ]
     }
 
-    evaluation = [
-      { type = "rule",      engine = "opa", label = "rule.rego",      content = file("${path.module}/rule.rego") },
-      { type = "rule_test",                 label = "rule_test.rego", content = file("${path.module}/rule_test.rego") },
-      { type = "detail",                    label = "detail.py",      content = file("${path.module}/detail.py") },
-      { type = "display",                   label = "display.py",     content = file("${path.module}/display.py") },
-    ]
+    evaluation = local.unit_tests_pytest_evaluation
+  }
+
+  lifecycle {
+    action_triggers {
+      events  = [after_create, after_update]
+      actions = [action.fianu_control_test.unit_tests_pytest]
+    }
+  }
+}
+
+action "fianu_control_test" "unit_tests_pytest" {
+  config {
+    path       = "testing.unit.pytest.results"
+    name       = "Unit Tests"
+    evaluation = local.unit_tests_pytest_evaluation
   }
 }

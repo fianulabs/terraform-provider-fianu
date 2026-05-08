@@ -1,0 +1,655 @@
+{
+  "spec": {
+    "format": "fior",
+    "version": "3.0.0"
+  },
+  "asset": {
+    "uuid": "00000000-0000-0000-0000-000000000000",
+    "name": "xd-trading-app",
+    "key": "banking-systems/xd-trading-app",
+    "ref": "xd-trading-app",
+    "type": {
+      "category": "software",
+      "code": 3000,
+      "name": "repository"
+    },
+    "version": {
+      "commit": "ca685035ce08b920bd465166ac901db9ab627f69",
+      "id": "187356000"
+    },
+    "scm": {
+      "repository": {
+        "id": "187356000",
+        "name": "xd-trading-app",
+        "project": "banking-systems",
+        "commit": "ca685035ce08b920bd465166ac901db9ab627f69",
+        "tag": null
+      },
+      "platform": {
+        "uuid": "",
+        "name": ""
+      },
+      "instance": {
+        "uuid": "c3ce5cbc-499f-4a91-ab83-7acbd0b6c7df",
+        "name": ""
+      }
+    },
+    "parent": null
+  },
+  "context": {
+    "apiVersion": "2.0.0",
+    "transaction": "bc0f35c4-be9d-415a-8f71-8c714ef09e64"
+  },
+  "declarations": null,
+  "detail": {
+    "createdAt": "2023-04-18T20:11:25.263979296Z",
+    "createdBy": {
+      "serviceAccount": {
+        "id": "svc-account-1"
+      }
+    },
+    "extraInfo": null,
+    "id": "00000000-0000-1234-5678-910111213141",
+    "outdatedPolicies": [],
+    "policies": [
+      {
+        "builtin": true,
+        "description": "Default built-in policy",
+        "id": "00000000-0000-1234-5678-910111213142",
+        "name": "Default vulnerabilities policy",
+        "params": {
+          "__typename": "cicdscanpolicyparamsvulnerabilities",
+          "detectionMethods": null,
+          "ignoreUnfixed": true,
+          "packageAllowList": [],
+          "packageCountThreshold": 1,
+          "severity": "CRITICAL"
+        },
+        "projects": null,
+        "type": "VULNERABILITIES"
+      }
+    ],
+    "projects": null,
+    "result": {
+      "__typename": "CICDDiskScanResult",
+      "analytics": {
+        "secrets": {
+          "cloudKeyCount": 0,
+          "dbConnectionStringCount": 0,
+          "gitCredentialCount": 0,
+          "passwordCount": 0,
+          "privateKeyCount": 0
+        },
+        "vulnerabilities": {
+          "criticalCount": 4,
+          "highCount": 26,
+          "infoCount": 2,
+          "lowCount": 0,
+          "mediumCount": 32,
+          "unfixedCount": 0
+        }
+      },
+      "applications": null,
+      "cpes": null,
+      "failedPolicyMatches": [
+        {
+          "policy": {
+            "builtin": true,
+            "description": "Default built-in policy",
+            "id": "00000000-0000-1234-5678-910111213145",
+            "name": "Default vulnerabilities policy",
+            "params": {
+              "__typename": "cicdscanpolicyparamsvulnerabilities",
+              "detectionMethods": null,
+              "ignoreUnfixed": true,
+              "packageAllowList": [],
+              "packageCountThreshold": 1,
+              "severity": "CRITICAL"
+            },
+            "projects": null,
+            "type": "VULNERABILITIES"
+          }
+        }
+      ],
+      "libraries": null,
+      "osPackages": [
+        {
+          "detectionMethod": "PACKAGE",
+          "failedPolicyMatches": [],
+          "name": "tiff",
+          "version": "4.4.0-r1",
+          "vulnerabilities": [
+            {
+              "fixedVersion": "4.5.0-r2",
+              "name": "CVE-2022-3598",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-3598"
+            },
+            {
+              "fixedVersion": "4.4.0-r3",
+              "name": "CVE-2023-0811",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0811"
+            },
+            {
+              "fixedVersion": "4.4.0-r2",
+              "name": "CVE-2022-58881",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-48281"
+            },
+            {
+              "fixedVersion": "4.4.0-r3",
+              "name": "CVE-2023-0902",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0912"
+            },
+            {
+              "fixedVersion": "4.4.0-r3",
+              "name": "CVE-2023-0798",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0798"
+            },
+            {
+              "fixedVersion": "4.4.0-r2",
+              "name": "CVE-2022-3626",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-3626"
+            },
+            {
+              "fixedVersion": "4.4.0-r2",
+              "name": "CVE-2022-3570",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-3570"
+            },
+            {
+              "fixedVersion": "4.4.0-r2",
+              "name": "CVE-2022-4645",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-4645"
+            },
+            {
+              "fixedVersion": "4.4.0-r3",
+              "name": "CVE-2023-0796",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0796"
+            },
+            {
+              "fixedVersion": "4.4.0-r3",
+              "name": "CVE-2023-0800",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0800"
+            },
+            {
+              "fixedVersion": "4.4.0-r2",
+              "name": "CVE-2022-3970",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-3970"
+            },
+            {
+              "fixedVersion": "4.4.0-r3",
+              "name": "CVE-2023-0804",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0804"
+            },
+            {
+              "fixedVersion": "4.4.0-r2",
+              "name": "CVE-2022-3599",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-3599"
+            },
+            {
+              "fixedVersion": "4.4.0-r3",
+              "name": "CVE-2023-0795",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0795"
+            },
+            {
+              "fixedVersion": "4.4.0-r2",
+              "name": "CVE-2022-3598",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-3598"
+            },
+            {
+              "fixedVersion": "4.4.0-r3",
+              "name": "CVE-2023-0803",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0803"
+            },
+            {
+              "fixedVersion": "4.4.0-r3",
+              "name": "CVE-2023-0799",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0799"
+            },
+            {
+              "fixedVersion": "4.4.0-r2",
+              "name": "CVE-2022-3627",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-3627"
+            },
+            {
+              "fixedVersion": "4.4.0-r3",
+              "name": "CVE-2023-0797",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0797"
+            }
+          ]
+        },
+        {
+          "detectionMethod": "PACKAGE",
+          "failedPolicyMatches": [],
+          "name": "libxml2",
+          "version": "2.10.3-r1",
+          "vulnerabilities": [
+            {
+              "fixedVersion": "2.10.4-r0",
+              "name": "CVE-2023-28484",
+              "severity": "INFORMATIONAL",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-28484"
+            },
+            {
+              "fixedVersion": "2.10.4-r0",
+              "name": "CVE-2023-29469",
+              "severity": "INFORMATIONAL",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-29469"
+            }
+          ]
+        },
+        {
+          "detectionMethod": "PACKAGE",
+          "failedPolicyMatches": [
+            {
+              "policy": {
+                "builtin": true,
+                "description": "Default built-in policy",
+                "id": "00000000-0000-1234-5678-910111213143",
+                "name": "Default vulnerabilities policy",
+                "params": {
+                  "__typename": "cicdscanpolicyparamsvulnerabilities",
+                  "detectionMethods": null,
+                  "ignoreUnfixed": true,
+                  "packageAllowList": [],
+                  "packageCountThreshold": 1,
+                  "severity": "CRITICAL"
+                },
+                "projects": null,
+                "type": "VULNERABILITIES"
+              }
+            }
+          ],
+          "name": "libcurl",
+          "version": "7.87.0-r0",
+          "vulnerabilities": [
+            {
+              "fixedVersion": "7.88.1-r1",
+              "name": "CVE-2023-27536",
+              "severity": "CRITICAL",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-27536"
+            },
+            {
+              "fixedVersion": "7.88.1-r1",
+              "name": "CVE-2023-27538",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-27538"
+            },
+            {
+              "fixedVersion": "7.87.0-r2",
+              "name": "CVE-2023-23914",
+              "severity": "CRITICAL",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-23914"
+            },
+            {
+              "fixedVersion": "7.87.0-r2",
+              "name": "CVE-2023-23916",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-23916"
+            },
+            {
+              "fixedVersion": "7.88.1-r1",
+              "name": "CVE-2023-27534",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-27534"
+            },
+            {
+              "fixedVersion": "7.88.1-r1",
+              "name": "CVE-2023-27535",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-27535"
+            },
+            {
+              "fixedVersion": "7.88.1-r1",
+              "name": "CVE-2023-27533",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-27533"
+            },
+            {
+              "fixedVersion": "7.87.0-r2",
+              "name": "CVE-2023-23915",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-23915"
+            },
+            {
+              "fixedVersion": "7.88.1-r1",
+              "name": "CVE-2023-27537",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-27537"
+            }
+          ]
+        },
+        {
+          "detectionMethod": "PACKAGE",
+          "failedPolicyMatches": [
+            {
+              "policy": {
+                "builtin": true,
+                "description": "Default built-in policy",
+                "id": "00000000-0000-1234-5678-910111213000",
+                "name": "Default vulnerabilities policy",
+                "params": {
+                  "__typename": "cicdscanpolicyparamsvulnerabilities",
+                  "detectionMethods": null,
+                  "ignoreUnfixed": true,
+                  "packageAllowList": [],
+                  "packageCountThreshold": 1,
+                  "severity": "CRITICAL"
+                },
+                "projects": null,
+                "type": "VULNERABILITIES"
+              }
+            }
+          ],
+          "name": "curl",
+          "version": "7.87.0-r0",
+          "vulnerabilities": [
+            {
+              "fixedVersion": "7.88.1-r1",
+              "name": "CVE-2023-27538",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-27538"
+            },
+            {
+              "fixedVersion": "7.88.1-r1",
+              "name": "CVE-2023-27534",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-27534"
+            },
+            {
+              "fixedVersion": "7.88.1-r1",
+              "name": "CVE-2023-27536",
+              "severity": "CRITICAL",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-27536"
+            },
+            {
+              "fixedVersion": "7.88.1-r1",
+              "name": "CVE-2023-27535",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-27535"
+            },
+            {
+              "fixedVersion": "7.87.0-r2",
+              "name": "CVE-2023-23915",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-23915"
+            },
+            {
+              "fixedVersion": "7.87.0-r2",
+              "name": "CVE-2023-23914",
+              "severity": "CRITICAL",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-23914"
+            },
+            {
+              "fixedVersion": "7.87.0-r2",
+              "name": "CVE-2023-23916",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-23916"
+            },
+            {
+              "fixedVersion": "7.88.1-r1",
+              "name": "CVE-2023-27537",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-27537"
+            },
+            {
+              "fixedVersion": "7.88.1-r1",
+              "name": "CVE-2023-27533",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-27533"
+            }
+          ]
+        },
+        {
+          "detectionMethod": "PACKAGE",
+          "failedPolicyMatches": [],
+          "name": "libcrypto3",
+          "version": "3.0.7-r2",
+          "vulnerabilities": [
+            {
+              "fixedVersion": "3.0.8-r0",
+              "name": "CVE-2023-0215",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0215"
+            },
+            {
+              "fixedVersion": "3.0.8-r3",
+              "name": "CVE-2023-0466",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0466"
+            },
+            {
+              "fixedVersion": "3.0.8-r0",
+              "name": "CVE-2022-4450",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-4450"
+            },
+            {
+              "fixedVersion": "3.0.8-r0",
+              "name": "CVE-2023-0217",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0217"
+            },
+            {
+              "fixedVersion": "3.0.8-r2",
+              "name": "CVE-2023-0465",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0465"
+            },
+            {
+              "fixedVersion": "3.0.8-r0",
+              "name": "CVE-2023-0216",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0216"
+            },
+            {
+              "fixedVersion": "3.0.8-r1",
+              "name": "CVE-2023-0464",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0464"
+            },
+            {
+              "fixedVersion": "3.0.8-r0",
+              "name": "CVE-2023-0401",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0401"
+            },
+            {
+              "fixedVersion": "3.0.8-r0",
+              "name": "CVE-2022-4304",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-4304"
+            },
+            {
+              "fixedVersion": "3.0.8-r0",
+              "name": "CVE-2023-0286",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0286"
+            },
+            {
+              "fixedVersion": "3.0.8-r0",
+              "name": "CVE-2022-4203",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-4203"
+            }
+          ]
+        },
+        {
+          "detectionMethod": "PACKAGE",
+          "failedPolicyMatches": [],
+          "name": "libssl3",
+          "version": "3.0.7-r2",
+          "vulnerabilities": [
+            {
+              "fixedVersion": "3.0.8-r0",
+              "name": "CVE-2023-0286",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0286"
+            },
+            {
+              "fixedVersion": "3.0.8-r0",
+              "name": "CVE-2023-0215",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0215"
+            },
+            {
+              "fixedVersion": "3.0.8-r1",
+              "name": "CVE-2023-0464",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0464"
+            },
+            {
+              "fixedVersion": "3.0.8-r0",
+              "name": "CVE-2023-0217",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0217"
+            },
+            {
+              "fixedVersion": "3.0.8-r0",
+              "name": "CVE-2022-4450",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-4450"
+            },
+            {
+              "fixedVersion": "3.0.8-r2",
+              "name": "CVE-2023-0465",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0465"
+            },
+            {
+              "fixedVersion": "3.0.8-r0",
+              "name": "CVE-2022-4203",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-4203"
+            },
+            {
+              "fixedVersion": "3.0.8-r0",
+              "name": "CVE-2023-0401",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0401"
+            },
+            {
+              "fixedVersion": "3.0.8-r0",
+              "name": "CVE-2023-0216",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0216"
+            },
+            {
+              "fixedVersion": "3.0.8-r3",
+              "name": "CVE-2023-0466",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2023-0466"
+            },
+            {
+              "fixedVersion": "3.0.8-r0",
+              "name": "CVE-2022-4304",
+              "severity": "MEDIUM",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-4304"
+            }
+          ]
+        },
+        {
+          "detectionMethod": "PACKAGE",
+          "failedPolicyMatches": [],
+          "name": "libxpm",
+          "version": "3.5.14-r0",
+          "vulnerabilities": [
+            {
+              "fixedVersion": "3.5.15-r0",
+              "name": "CVE-2022-44617",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-44617"
+            },
+            {
+              "fixedVersion": "3.5.15-r0",
+              "name": "CVE-2022-46285",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-46285"
+            },
+            {
+              "fixedVersion": "3.5.15-r0",
+              "name": "CVE-2022-4883",
+              "severity": "HIGH",
+              "source": "https://security.alpinelinux.org/vuln/CVE-2022-4883"
+            }
+          ]
+        }
+      ],
+      "secrets": null
+    },
+    "scanOriginResource": {
+      "__typename": "CICDScanOriginContainerImage",
+      "name": "banking-systems/xd-banking-app:latest"
+    },
+    "startedAt": "0001-01-01T00:00:00Z",
+    "status": {
+      "state": "SUCCESS",
+      "verdict": "FAILED_BY_POLICY"
+    },
+    "tags": null
+  },
+  "display": null,
+  "evaluation": null,
+  "metadata": {
+    "entity": {
+      "type": "plugin",
+      "uuid": "d05abd28-4005-44f9-8a0d-f721f501d009",
+      "version": {
+        "semantic": "1.0.0",
+        "status": "active",
+        "uuid": "00000000-0000-0000-0000-000000000000"
+      }
+    },
+    "error": null,
+    "origination": "2023-04-18T20:11:25Z",
+    "parent": {
+      "ref": "14535cc9-c348-49e5-a9d5-3717659cb9fe"
+    },
+    "path": "wiz.containerscan",
+    "resources": [
+      {
+        "integration": {
+          "name": "Fianu (Hosted)",
+          "platform": {
+            "name": "Fianu (Hosted)",
+            "uuid": "30547679-9e9f-4d77-b5b1-879c18da076d",
+            "version": "1.17.3"
+          },
+          "type": "instance",
+          "uuid": "1cb75c75-c715-4d10-9f35-eba7d73bd9a1",
+          "version": "1.0.0"
+        },
+        "uri": {
+          "path": "https://app.fianu.io/api/notes/14535cc9-c348-49e5-a9d5-3717659cb9fe",
+          "responseType": "application/json",
+          "tag": "origin",
+          "timestamp": "2023-05-25T23:28:37Z",
+          "utility": "api"
+        }
+      }
+    ],
+    "status": "complete",
+    "timestamp": "2023-05-25T23:28:37Z",
+    "token": null,
+    "type": "occurrence",
+    "uuid": "f99e9a81-5a14-4a6f-a26e-f5dc4fc070b7"
+  },
+  "policy": null
+}

@@ -1,0 +1,246 @@
+{
+  "spec": {
+    "format": "fior",
+    "version": "3.0.0"
+  },
+  "asset": {
+    "uuid": "00000000-0000-0000-0000-000000000000",
+    "name": "banking",
+    "key": "investmentsunlimited/banking",
+    "ref": "banking",
+    "type": {
+      "category": "software",
+      "code": 3000,
+      "name": "repository"
+    },
+    "version": {
+      "commit": "a95ac08b3a253b21e83d1e38323c2b221a93d95e",
+      "id": "977816389"
+    },
+    "scm": {
+      "repository": {
+        "id": "977816389",
+        "name": "banking",
+        "project": "investmentsunlimited",
+        "commit": "a95ac08b3a253b21e83d1e38323c2b221a93d95e",
+        "tag": null
+      },
+      "platform": {
+        "uuid": "",
+        "name": ""
+      },
+      "instance": {
+        "uuid": "d3ce5cbc-499f-4a91-ab83-7acbd0b6c7df",
+        "name": ""
+      }
+    },
+    "parent": null
+  },
+  "context": {
+    "apiVersion": "2.0.0",
+    "transaction": "c9b1ab89-4cf2-4c9b-b6d4-8e8c387360f5"
+  },
+  "declarations": {
+    "evidenceFile": "",
+    "evidenceFileDigest": ""
+  },
+  "detail": {
+    "additionalDetails": {
+      "comments": "Scan",
+      "numFailedLoc": "",
+      "owner": "svcRnDCybersecurity",
+      "scanId": "1035418",
+      "scanRisk": "",
+      "scanRiskSeverity": "",
+      "scanStartDate": "Friday, January 6, 2023 4:30:33 PM",
+      "version": ""
+    },
+    "files": "73",
+    "link": "https://checkmarx.com/CxWebClient/ViewerMain.aspx?scanid=2035418&projectid=158",
+    "loc": "28757",
+    "project": "banking",
+    "projectId": "158",
+    "scanType": "Full",
+    "team": "UDP",
+    "xissues": [
+      {
+        "additionalDetails": {
+          "categories": "Java_Low_Visibility",
+          "recommendedFix": "",
+          "results": [
+            {
+              "sink": {
+                "column": "21",
+                "file": "banking/build/resources/main/application.properties",
+                "line": "27",
+                "object": ""
+              },
+              "source": {
+                "column": "21",
+                "file": "banking/build/resources/main/application.properties",
+                "line": "27",
+                "object": ""
+              },
+              "state": "0"
+            },
+            {
+              "sink": {
+                "column": "21",
+                "file": "banking/src/main/resources/application.properties",
+                "line": "27",
+                "object": ""
+              },
+              "source": {
+                "column": "21",
+                "file": "banking/src/main/resources/application.properties",
+                "line": "27",
+                "object": ""
+              },
+              "state": "0"
+            },
+            {
+              "sink": {
+                "column": "21",
+                "file": "banking/src/test/resources/application-int-test.properties",
+                "line": "11",
+                "object": ""
+              },
+              "source": {
+                "column": "21",
+                "file": "banking/src/test/resources/application-int-test.properties",
+                "line": "11",
+                "object": ""
+              },
+              "state": "0"
+            }
+          ]
+        },
+        "cve": null,
+        "cwe": "260",
+        "description": "JavaCxJava Low VisibilityUse Of Hardcoded Password In Config Version:1",
+        "details": {},
+        "filename": "",
+        "gitUrl": "",
+        "language": "Java",
+        "link": "",
+        "osaDetails": null,
+        "severity": "High",
+        "similarityId": "",
+        "vulnerability": "Use_Of_Hardcoded_Password_In_Config"
+      },
+      {
+        "additionalDetails": {
+          "categories": "Kotlin_Android",
+          "recommendedFix": "",
+          "results": [
+            {
+              "sink": {
+                "column": "13",
+                "file": "banking/src/main/kotlin/com/banking/novonordisk/key/application.kt",
+                "line": "19",
+                "object": ""
+              },
+              "source": {
+                "column": "13",
+                "file": "banking/src/main/kotlin/com/banking/novonordisk/key/application.kt",
+                "line": "19",
+                "object": ""
+              },
+              "state": "0"
+            }
+          ]
+        },
+        "cve": null,
+        "cwe": "693",
+        "description": "KotlinCxKotlin AndroidMissing Rooted Device Check Version:1",
+        "details": {},
+        "filename": "",
+        "gitUrl": "",
+        "language": "Kotlin",
+        "link": "",
+        "osaDetails": null,
+        "severity": "Low",
+        "similarityId": "",
+        "vulnerability": "Missing_Rooted_Device_Check"
+      },
+      {
+        "additionalDetails": {
+          "categories": "Kotlin_Android",
+          "recommendedFix": "",
+          "results": [
+            {
+              "sink": {
+                "column": "41",
+                "file": "banking/src/main/kotlin/com/banking/novonordisk/key/util/cryptoutilityimpl.kt",
+                "line": "119",
+                "object": ""
+              },
+              "source": {
+                "column": "41",
+                "file": "banking/src/main/kotlin/com/banking/novonordisk/key/util/cryptoutilityimpl.kt",
+                "line": "119",
+                "object": ""
+              },
+              "state": "0"
+            }
+          ]
+        },
+        "cve": null,
+        "cwe": "326",
+        "description": "KotlinCxKotlin AndroidInsecure Cipher Mode Version:1",
+        "details": {},
+        "filename": "",
+        "gitUrl": "",
+        "language": "Kotlin",
+        "link": "",
+        "osaDetails": null,
+        "severity": "Information",
+        "similarityId": "",
+        "vulnerability": "Insecure_Cipher_Mode"
+      }
+    ]
+  },
+  "display": null,
+  "evaluation": null,
+  "metadata": {
+    "entity": {
+      "type": "plugin",
+      "uuid": "281699e2-e52d-4731-bd9f-fbaa8c25c00a",
+      "version": {
+        "semantic": "1.0.0",
+        "status": "active",
+        "uuid": "00000000-0000-0000-0000-000000000000"
+      }
+    },
+    "error": null,
+    "origination": "2023-01-17T06:12:33Z",
+    "parent": {
+      "ref": "696775eb-a4ce-4121-8bcb-5f0c4dfc5aea"
+    },
+    "path": "checkmarx.sast",
+    "resources": [
+      {
+        "integration": {
+          "name": "Checkmarx",
+          "platform": null,
+          "type": "tool",
+          "uuid": "00000000-0000-0000-0000-000000000000",
+          "version": "1.0.0"
+        },
+        "uri": {
+          "path": "https://checkmarx.banking.com/CxWebClient/ViewerMain.aspx?scanid=1035418&projectid=258",
+          "responseType": "application/json",
+          "tag": "origin",
+          "timestamp": "2023-01-17T06:12:33Z",
+          "utility": "api"
+        }
+      }
+    ],
+    "status": "complete",
+    "timestamp": "2023-01-17T06:12:33Z",
+    "token": null,
+    "type": "occurrence",
+    "uuid": "c65ae85f-cc75-4cf6-9537-7d4d6513d867"
+  },
+  "policy": null
+}

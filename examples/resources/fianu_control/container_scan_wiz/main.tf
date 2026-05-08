@@ -7,6 +7,17 @@
 # scope is `artifact` only with multiple series (digest, uri, commit) — the
 # kind of multi-series binding container scans need.
 
+locals {
+  container_scan_wiz_evaluation = [
+    { type = "rule",      engine = "opa", label = "rule.rego",      content = file("${path.module}/rule.rego") },
+    { type = "rule_test",                 label = "rule_test.rego", content = file("${path.module}/rule_test.rego") },
+    { type = "detail",                    label = "detail.py",      content = file("${path.module}/detail.py") },
+    { type = "display",                   label = "display.py",     content = file("${path.module}/display.py") },
+    { type = "input",  label = "occ_case_1.json",    content = file("${path.module}/input/occ_case_1.json") },
+    { type = "data",   label = "policy_case_1.json", content = file("${path.module}/data/policy_case_1.json") },
+  ]
+}
+
 resource "fianu_control" "container_scan_wiz" {
   path = "wiz.containerscan.vulnerabilities"
   name = "Container Scan"
@@ -90,11 +101,21 @@ resource "fianu_control" "container_scan_wiz" {
       ]
     }
 
-    evaluation = [
-      { type = "rule",      engine = "opa", label = "rule.rego",      content = file("${path.module}/rule.rego") },
-      { type = "rule_test",                 label = "rule_test.rego", content = file("${path.module}/rule_test.rego") },
-      { type = "detail",                    label = "detail.py",      content = file("${path.module}/detail.py") },
-      { type = "display",                   label = "display.py",     content = file("${path.module}/display.py") },
-    ]
+    evaluation = local.container_scan_wiz_evaluation
+  }
+
+  lifecycle {
+    action_triggers {
+      events  = [after_create, after_update]
+      actions = [action.fianu_control_test.container_scan_wiz]
+    }
+  }
+}
+
+action "fianu_control_test" "container_scan_wiz" {
+  config {
+    path       = "wiz.containerscan.vulnerabilities"
+    name       = "Container Scan"
+    evaluation = local.container_scan_wiz_evaluation
   }
 }

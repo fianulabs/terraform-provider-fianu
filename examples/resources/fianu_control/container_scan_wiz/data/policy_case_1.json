@@ -1,0 +1,23 @@
+{
+  "required": true,
+  "vulnerabilities": {
+    "critical": {
+      "maximum": 5,
+      "exceptions": []
+    },
+    "high": {
+      "maximum": 25,
+      "exceptions": [
+        "CVE-2023-23916"
+      ]
+    },
+    "medium": {
+      "maximum": 0,
+      "exceptions": []
+    },
+    "low": {
+      "maximum": 0,
+      "exceptions": []
+    }
+  }
+}

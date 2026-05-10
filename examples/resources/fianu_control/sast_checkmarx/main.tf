@@ -144,7 +144,7 @@ resource "fianu_control" "sast_checkmarx" {
   # successful runs stream per-case "✓ occ_case_1" progress events to the
   # CLI. Equivalent to `fianu console test controls ./checkmarx.sast.vulnerabilities/`.
   lifecycle {
-    action_triggers {
+    action_trigger {
       events  = [after_create, after_update]
       actions = [action.fianu_control_test.sast_checkmarx]
     }

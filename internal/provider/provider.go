@@ -138,6 +138,7 @@ func (p *fianuProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	resp.ResourceData = sdk
 	resp.DataSourceData = sdk
 	resp.EphemeralResourceData = sdk
+	resp.ActionData = sdk
 }
 
 func (p *fianuProvider) Resources(_ context.Context) []func() resource.Resource {

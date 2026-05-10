@@ -16,7 +16,7 @@
 //
 //	terraform action fianu_control_test.sast_checkmarx
 //
-// Or wire to apply via the resource's lifecycle.action_triggers block so
+// Or wire to apply via the resource's lifecycle.action_trigger block so
 // the tests run automatically on every create/update.
 package controltest
 
@@ -262,8 +262,8 @@ type junitReport struct {
 }
 
 type junitSuite struct {
-	Name      string       `json:"name"`
-	TestCases []junitCase  `json:"testcase"`
+	Name      string      `json:"name"`
+	TestCases []junitCase `json:"testcase"`
 }
 
 type junitCase struct {

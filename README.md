@@ -129,7 +129,7 @@ resource "fianu_control" "sast" {
 
   # Run rego tests after every create/update.
   lifecycle {
-    action_triggers {
+    action_trigger {
       events  = [after_create, after_update]
       actions = [action.fianu_control_test.sast]
     }
@@ -151,7 +151,7 @@ Run on demand:
 terraform action fianu_control_test.sast
 ```
 
-Or watch it run as part of `terraform apply` — the `lifecycle.action_triggers`
+Or watch it run as part of `terraform apply` — the `lifecycle.action_trigger`
 block above invokes it after every create/update of the resource. Failed
 test cases surface as apply errors; successful runs stream `✓ occ_case_1`
 progress events to the CLI.

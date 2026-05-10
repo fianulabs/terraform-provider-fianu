@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -25,8 +26,8 @@ import (
 //   - Create  → Deploy hits the stub Console with the expected payload
 //   - Read    → FetchControl populates state with server-side fields
 //   - Plan    → re-running terraform plan after apply yields zero diff
-//                (proves the idempotency contract end-to-end through the
-//                terraform-plugin-framework)
+//     (proves the idempotency contract end-to-end through the
+//     terraform-plugin-framework)
 //   - Destroy → ArchiveEntity is called with the resource's UUID
 //
 // The test stands up a single httptest server impersonating Console; the
@@ -107,6 +108,7 @@ type consoleStub struct {
 	deployHits  atomic.Int32
 	fetchHits   atomic.Int32
 	archiveHits atomic.Int32
+	testHits    atomic.Int32
 
 	// stored remembers the most recently deployed response so subsequent reads
 	// reflect the just-applied state.
@@ -119,6 +121,11 @@ type consoleStub struct {
 	// capturedRawContent is the raw bytes that were base64-decoded from the
 	// header. Useful for asserting evaluation[].content round-trips byte-for-byte.
 	capturedRawContent atomic.Value // []byte
+
+	// capturedTestEntity is the most recent *fianu_entities.Control decoded
+	// from the X-Fianu-Raw-Content header on a /entities/artifacts/test call.
+	// Lets action-trigger tests assert which entity the action ran against.
+	capturedTestEntity atomic.Value // *fianu_entities.Control
 }
 
 func newConsoleStub(t *testing.T) *consoleStub {
@@ -215,6 +222,45 @@ func newConsoleStub(t *testing.T) *consoleStub {
   "version":{"semantic":"1","uuid":"version-uuid","status":"active","state":"published"},
   "detail":{"control":{"fullName":"Basic Test Control","displayKey":"BTC","description":"Acceptance-test fixture"}}
 }`, key)
+	})
+
+	// /entities/artifacts/test is what fianu_control_test.Invoke hits. The
+	// real server unpacks the entity, runs its rego rules against bundled
+	// input/data fixtures, and returns a JUnit-shaped report. The stub
+	// captures the entity and returns a single passing case so action_triggers
+	// tests can assert the action ran without tripping the action's failure
+	// diagnostic.
+	mux.HandleFunc("/entities/artifacts/test", func(w http.ResponseWriter, r *http.Request) {
+		stub.testHits.Add(1)
+
+		// Capture entity for assertions, mirroring the deploy handler.
+		var path, name string
+		if rawHdr := r.Header.Get("X-Fianu-Raw-Content"); rawHdr != "" {
+			if rawBytes, err := base64.StdEncoding.DecodeString(rawHdr); err == nil {
+				var entity fianu_entities.Control
+				if err := json.Unmarshal(rawBytes, &entity); err == nil {
+					stub.capturedTestEntity.Store(&entity)
+					path = entity.Path
+					name = entity.Name
+				}
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(transportv1.TestEntityFileResponse{
+			Path: path,
+			Name: name,
+			Report: map[string]any{
+				"testsuites": []map[string]any{
+					{
+						"name": "rule_test.rego",
+						"testcase": []map[string]any{
+							{"name": "occ_case_1", "classname": "rule"},
+						},
+					},
+				},
+			},
+		})
 	})
 
 	// ArchiveEntity hits DELETE /archive/<type>/<uuid>. Match anything under
@@ -448,3 +494,127 @@ resource "fianu_control" "rt" {
 	}
 }
 
+// TestAccFianuControl_ActionTriggers proves the end-to-end wiring of the
+// fianu_control_test action when invoked via lifecycle.action_triggers.
+//
+// HCL surface under test:
+//
+//   - resource "fianu_control" with `lifecycle.action_triggers { events =
+//     [after_create]; actions = [action.fianu_control_test.t] }`
+//   - action "fianu_control_test" "t" with the matching evaluation cases
+//
+// On apply, terraform CLI parses the action block, invokes the action after
+// the resource is created, and the action calls /entities/artifacts/test.
+// The stub records that hit; the assertion proves the action fired at least
+// once, which is the load-bearing claim of the auto-test feature.
+//
+// Requires terraform CLI ≥ 1.14 (the CLI version that introduced action
+// blocks and lifecycle.action_triggers). Older binaries fail the HCL parse.
+func TestAccFianuControl_ActionTriggers(t *testing.T) {
+	stub := newConsoleStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{Config: testAccConfigActionTriggers},
+		},
+	})
+
+	if hits := stub.testHits.Load(); hits < 1 {
+		t.Fatalf("expected /entities/artifacts/test to be called via action_triggers, got %d", hits)
+	}
+
+	captured, _ := stub.capturedTestEntity.Load().(*fianu_entities.Control)
+	if captured == nil {
+		t.Fatal("action invoked /entities/artifacts/test but no entity was captured by the stub")
+	}
+	if captured.Path != "test.action.triggers" {
+		t.Errorf("test entity Path = %q, want %q", captured.Path, "test.action.triggers")
+	}
+	if len(captured.Detail.Evaluation) == 0 {
+		t.Errorf("test entity must carry evaluation cases for the rego runner; got 0")
+	}
+}
+
+const testAccConfigActionTriggers = `
+provider "fianu" {}
+
+locals {
+  evaluation = [
+    { type = "rule", engine = "opa", label = "rule.rego", content = "package rule\ndefault pass = false\n" },
+    { type = "input", label = "occ_case_1.json", content = "{\"ok\":true}" },
+  ]
+}
+
+resource "fianu_control" "trig" {
+  path = "test.action.triggers"
+  name = "Action Trigger Test Control"
+  detail = {
+    full_name   = "Action Trigger Test"
+    display_key = "ATRIG"
+    evaluation  = local.evaluation
+  }
+
+  lifecycle {
+    action_trigger {
+      events  = [after_create]
+      actions = [action.fianu_control_test.t]
+    }
+  }
+}
+
+action "fianu_control_test" "t" {
+  config {
+    path       = "test.action.triggers"
+    name       = "Action Trigger Test Control"
+    evaluation = local.evaluation
+  }
+}
+`
+
+// TestAccFianuControlTest_RejectsInvalidType proves the action's
+// evaluation[].type validator catches typos at plan time. The OneOf
+// validator should refuse a `type = "rulez"` entry before terraform attempts
+// to apply, so users get fast feedback in their editor / CI plan step.
+func TestAccFianuControlTest_RejectsInvalidType(t *testing.T) {
+	stub := newConsoleStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{
+				Config:      testAccConfigInvalidEvaluationType,
+				ExpectError: regexpInvalidType,
+			},
+		},
+	})
+}
+
+// regexpInvalidType matches the framework's OneOf validator error for a bad
+// evaluation case `type`. Loose enough to survive cosmetic message changes
+// in upstream validators; strict enough to reject other unrelated errors.
+var regexpInvalidType = regexp.MustCompile(`(?i)(value must be one of|attribute type value must be|invalid attribute value)`)
+
+const testAccConfigInvalidEvaluationType = `
+provider "fianu" {}
+
+action "fianu_control_test" "bad" {
+  config {
+    path = "x"
+    name = "X"
+    evaluation = [
+      { type = "rulez", engine = "opa", content = "package rule" },
+    ]
+  }
+}
+`

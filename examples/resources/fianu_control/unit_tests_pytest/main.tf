@@ -127,7 +127,7 @@ resource "fianu_control" "unit_tests_pytest" {
   }
 
   lifecycle {
-    action_triggers {
+    action_trigger {
       events  = [after_create, after_update]
       actions = [action.fianu_control_test.unit_tests_pytest]
     }

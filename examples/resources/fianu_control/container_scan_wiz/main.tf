@@ -105,7 +105,7 @@ resource "fianu_control" "container_scan_wiz" {
   }
 
   lifecycle {
-    action_triggers {
+    action_trigger {
       events  = [after_create, after_update]
       actions = [action.fianu_control_test.container_scan_wiz]
     }

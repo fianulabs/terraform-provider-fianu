@@ -1,39 +1,50 @@
-name: ci/cd pipeline
+name: release
 
 on:
-  pull_request:
   push:
-    branches:
-      - main
+    tags:
+      - 'v*'
 
-concurrency:
-  group: pipe-${{ github.event.pull_request.head.ref || github.ref_name }}
-  cancel-in-progress: true
+permissions:
+  contents: write
 
 jobs:
-  ci:
-    uses: fianulabs/tools/.github/workflows/shared.ci.go.pipeline.yaml@v2
-    permissions:
-      id-token: write
-      contents: write
-      packages: write
-      actions: write
-      pull-requests: read
-    secrets: inherit
-    with:
-      artifact-version: ${{ github.ref_name }}
-      artifact-name: terraform-provider-fianu
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get GitHub App token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.F_GH_DEV_BOT_APP_ID }}
+          private-key: ${{ secrets.F_GH_DEV_BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
 
-  cd:
-    needs: [ci]
-    uses: fianulabs/tools/.github/workflows/shared.cd.pipeline.yaml@v2
-    permissions:
-      id-token: write
-      contents: write
-      packages: write
-      actions: write
-    secrets: inherit
-    with:
-      tag: 0.1.0
-      gcs-bucket: fianu-release-v1
-      binary-name: terraform-provider-fianu
+      # Reuses fianulabs/cli's proven private-module auth pattern: this composite
+      # action checks out the repo, sets `git config insteadOf` with the app
+      # token, sets GOPRIVATE=github.com/fianulabs, and runs `go mod download`
+      # so module-resolution failures surface before goreleaser starts.
+      - name: Setup Go with private-module auth
+        uses: fianulabs/tools/integration/setup/go@v2
+        with:
+          gh-access-token: ${{ steps.app-token.outputs.token }}
+          version: ${{ github.ref_name }}
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        id: import_gpg
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.PASSPHRASE }}
+
+      # `release --clean` (no --snapshot) makes goreleaser publish the zips,
+      # SHA256SUMS, signature, and manifest as a GitHub Release on the tag.
+      - name: GoReleaser → GitHub Release
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GOPRIVATE: github.com/fianulabs
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}

@@ -10,7 +10,10 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    # Self-hosted runner with the disk headroom needed to cross-compile
+    # all 15 OS/arch combos goreleaser builds (the GitHub-hosted runner's
+    # ~14GB fills up partway through the matrix). Matches fianulabs/cli.
+    runs-on: fianu-ubuntu-large
     steps:
       - name: Get GitHub App token
         uses: actions/create-github-app-token@v1

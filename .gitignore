@@ -22,6 +22,10 @@ coverage.html
 # Provider binary built by `go install`
 terraform-provider-fianu
 
+# Fianu CLI binary dropped by fianulabs/actions@main inside the release
+# workflow's setup/go composite action. Untracked at repo root.
+/fianu
+
 # tfplugindocs scratch space
 .changes/
 

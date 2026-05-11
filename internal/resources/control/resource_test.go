@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
+	pkgvariables "github.com/fianulabs/core/v2/external/pkg/variables"
 	transportv1 "github.com/fianulabs/core/v2/external/transport/http/v1"
 	"github.com/fianulabs/terraform-provider-fianu/internal/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -144,27 +145,25 @@ func newConsoleStub(t *testing.T) *consoleStub {
 			path = *req.General.Path
 		}
 
-		// Capture the deployed entity for test assertions. Real callers send
-		// the entity JSON via X-Fianu-Raw-Content (base64-encoded).
+		// Decode the raw-content header into a Control once; reuse rawBytes
+		// and entity below.
 		entityName := ""
-		if rawHdr := r.Header.Get("X-Fianu-Raw-Content"); rawHdr != "" {
-			if rawBytes, err := base64.StdEncoding.DecodeString(rawHdr); err == nil {
-				stub.capturedRawContent.Store(rawBytes)
-				var entity fianu_entities.Control
-				if err := json.Unmarshal(rawBytes, &entity); err == nil {
-					stub.capturedEntity.Store(&entity)
-					entityName = entity.Name
-				}
-			}
+		rawBytes, entity := decodeFianuRawContent(r)
+		if rawBytes != nil {
+			stub.capturedRawContent.Store(rawBytes)
+		}
+		if entity != nil {
+			stub.capturedEntity.Store(entity)
+			entityName = entity.Name
 		}
 
 		// Second deploy with same content is a no-op per the real gate; the
-		// stub mimics that by inspecting the X-Fianu-CI-System-Hash header
-		// against the prior call.
+		// stub mimics that by inspecting the system-hash header against the
+		// prior call.
 		action := "created"
 		if prior := stub.stored.Load(); prior != nil {
 			pr := prior.(*transportv1.DeployEntityFileResponse)
-			if pr.Metadata != nil && pr.Metadata.ContentHash == r.Header.Get("X-Fianu-CI-System-Hash") {
+			if pr.Metadata != nil && pr.Metadata.ContentHash == r.Header.Get(pkgvariables.XFianuCISystemHash) {
 				action = "skipped"
 			} else {
 				action = "updated"
@@ -181,7 +180,7 @@ func newConsoleStub(t *testing.T) *consoleStub {
 			Message: "ok",
 			Metadata: &transportv1.DeploymentMetadata{
 				Action:      action,
-				ContentHash: r.Header.Get("X-Fianu-CI-System-Hash"),
+				ContentHash: r.Header.Get(pkgvariables.XFianuCISystemHash),
 				EntityID:    "test-uuid-fixed",
 				Path:        path,
 				Name:        respName,
@@ -233,17 +232,11 @@ func newConsoleStub(t *testing.T) *consoleStub {
 	mux.HandleFunc("/entities/artifacts/test", func(w http.ResponseWriter, r *http.Request) {
 		stub.testHits.Add(1)
 
-		// Capture entity for assertions, mirroring the deploy handler.
 		var path, name string
-		if rawHdr := r.Header.Get("X-Fianu-Raw-Content"); rawHdr != "" {
-			if rawBytes, err := base64.StdEncoding.DecodeString(rawHdr); err == nil {
-				var entity fianu_entities.Control
-				if err := json.Unmarshal(rawBytes, &entity); err == nil {
-					stub.capturedTestEntity.Store(&entity)
-					path = entity.Path
-					name = entity.Name
-				}
-			}
+		if _, entity := decodeFianuRawContent(r); entity != nil {
+			stub.capturedTestEntity.Store(entity)
+			path = entity.Path
+			name = entity.Name
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -277,6 +270,27 @@ func newConsoleStub(t *testing.T) *consoleStub {
 
 	stub.server = httptest.NewServer(mux)
 	return stub
+}
+
+// decodeFianuRawContent pulls the entity that the provider sent via the
+// X-Fianu-Raw-Content header (base64-encoded JSON). Returns the raw bytes
+// alongside the decoded Control. Either may be nil if the header is absent
+// or malformed; the stub treats those as silent no-ops because the tests
+// that depend on captured state assert non-nil directly.
+func decodeFianuRawContent(r *http.Request) ([]byte, *fianu_entities.Control) {
+	hdr := r.Header.Get(pkgvariables.XFianuRawContent)
+	if hdr == "" {
+		return nil, nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(hdr)
+	if err != nil {
+		return nil, nil
+	}
+	var entity fianu_entities.Control
+	if err := json.Unmarshal(raw, &entity); err != nil {
+		return raw, nil
+	}
+	return raw, &entity
 }
 
 // TestAccFianuControl_FullSpec exercises the full HCL schema introduced in
@@ -495,11 +509,11 @@ resource "fianu_control" "rt" {
 }
 
 // TestAccFianuControl_ActionTriggers proves the end-to-end wiring of the
-// fianu_control_test action when invoked via lifecycle.action_triggers.
+// fianu_control_test action when invoked via lifecycle.action_trigger.
 //
 // HCL surface under test:
 //
-//   - resource "fianu_control" with `lifecycle.action_triggers { events =
+//   - resource "fianu_control" with `lifecycle.action_trigger { events =
 //     [after_create]; actions = [action.fianu_control_test.t] }`
 //   - action "fianu_control_test" "t" with the matching evaluation cases
 //
@@ -509,7 +523,7 @@ resource "fianu_control" "rt" {
 // once, which is the load-bearing claim of the auto-test feature.
 //
 // Requires terraform CLI ≥ 1.14 (the CLI version that introduced action
-// blocks and lifecycle.action_triggers). Older binaries fail the HCL parse.
+// blocks and lifecycle.action_trigger). Older binaries fail the HCL parse.
 func TestAccFianuControl_ActionTriggers(t *testing.T) {
 	stub := newConsoleStub(t)
 	defer stub.server.Close()
@@ -526,7 +540,7 @@ func TestAccFianuControl_ActionTriggers(t *testing.T) {
 	})
 
 	if hits := stub.testHits.Load(); hits < 1 {
-		t.Fatalf("expected /entities/artifacts/test to be called via action_triggers, got %d", hits)
+		t.Fatalf("expected /entities/artifacts/test to be called via action_trigger, got %d", hits)
 	}
 
 	captured, _ := stub.capturedTestEntity.Load().(*fianu_entities.Control)
@@ -600,10 +614,11 @@ func TestAccFianuControlTest_RejectsInvalidType(t *testing.T) {
 	})
 }
 
-// regexpInvalidType matches the framework's OneOf validator error for a bad
-// evaluation case `type`. Loose enough to survive cosmetic message changes
-// in upstream validators; strict enough to reject other unrelated errors.
-var regexpInvalidType = regexp.MustCompile(`(?i)(value must be one of|attribute type value must be|invalid attribute value)`)
+// regexpInvalidType anchors specifically to terraform-plugin-framework's
+// stringvalidator.OneOf failure message. Tighter than a generic "invalid
+// attribute" pattern so the test catches only the bad-enum case it claims
+// to test, not unrelated validation failures elsewhere in the HCL.
+var regexpInvalidType = regexp.MustCompile(`(?i)value must be one of`)
 
 const testAccConfigInvalidEvaluationType = `
 provider "fianu" {}

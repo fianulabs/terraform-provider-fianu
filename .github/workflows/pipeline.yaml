@@ -1,0 +1,39 @@
+name: ci/cd pipeline
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: pipe-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: fianulabs/tools/.github/workflows/shared.ci.go.pipeline.yaml@v2
+    permissions:
+      id-token: write
+      contents: write
+      packages: write
+      actions: write
+      pull-requests: read
+    secrets: inherit
+    with:
+      artifact-version: ${{ github.ref_name }}
+      artifact-name: terraform-provider-fianu
+
+  cd:
+    needs: [ci]
+    uses: fianulabs/tools/.github/workflows/shared.cd.pipeline.yaml@v2
+    permissions:
+      id-token: write
+      contents: write
+      packages: write
+      actions: write
+    secrets: inherit
+    with:
+      tag: 0.1.0
+      gcs-bucket: fianu-release-v1
+      binary-name: terraform-provider-fianu

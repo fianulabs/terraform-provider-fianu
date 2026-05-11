@@ -3,7 +3,7 @@ module github.com/fianulabs/terraform-provider-fianu
 go 1.26.1
 
 require (
-	github.com/fianulabs/core/v2 v2.9.151-0.20251102160149-9e9c04cec55d
+	github.com/fianulabs/core/v2 v2.16.56
 	github.com/hashicorp/terraform-plugin-docs v0.25.0
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
 	github.com/hashicorp/terraform-plugin-framework-validators v0.19.0
@@ -257,7 +257,3 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
-
-// During v0 development the SDK lives in the core monorepo. Once the
-// core-side SDK is published as a tagged module this replace can be removed.
-replace github.com/fianulabs/core/v2 => ../core

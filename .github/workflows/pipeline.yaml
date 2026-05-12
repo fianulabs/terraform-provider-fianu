@@ -38,7 +38,21 @@ jobs:
         id: import_gpg
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.PASSPHRASE }}
+          passphrase: ${{ secrets.GPG_PRIVATE_KEY_PASSCODE }}
+
+      # Sanity-check the imported key can actually sign with the same flags
+      # goreleaser will use. Fails fast (a few seconds) instead of after a
+      # ~5-minute cross-compile if the key material is bad / passphrase wrong.
+      - name: Verify GPG key is usable
+        env:
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PRIVATE_KEY_PASSCODE }}
+        run: |
+          echo "verify-payload" > /tmp/gpg-verify.txt
+          gpg --batch --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" \
+              --local-user "$GPG_FINGERPRINT" \
+              --output /tmp/gpg-verify.txt.sig --detach-sign /tmp/gpg-verify.txt
+          gpg --verify /tmp/gpg-verify.txt.sig /tmp/gpg-verify.txt
 
       # `release --clean` (no --snapshot) makes goreleaser publish the zips,
       # SHA256SUMS, signature, and manifest as a GitHub Release on the tag.

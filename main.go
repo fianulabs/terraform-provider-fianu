@@ -8,7 +8,7 @@
 // targets terraform-plugin-framework v1.19+ over plugin protocol v6.
 //
 // Local development:
-// //
+//
 //	go install .
 //	# add a dev_overrides block to ~/.terraformrc pointing at $GOPATH/bin
 //
@@ -22,8 +22,9 @@ import (
 	"flag"
 	"log"
 
-	"github.com/fianulabs/terraform-provider-fianu/internal/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+
+	"github.com/fianulabs/terraform-provider-fianu/internal/provider"
 )
 
 // version is overridden at build time via -ldflags so released binaries report

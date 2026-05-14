@@ -20,4 +20,4 @@ The Fianu provider manages compliance entities (controls, policies, environments
 - `client_secret` (String, Sensitive) OIDC client secret. Falls back to `FIANU_CLIENT_SECRET`.
 - `host` (String) Base URL of the Fianu Console (e.g., `https://console.fianu.io`). Falls back to `FIANU_HOST`.
 - `token` (String, Sensitive) Pre-issued bearer token, mutually exclusive with the OIDC client-credentials fields. Falls back to `FIANU_TOKEN`. Use this only when you already hold a long-lived token (e.g., a CI service account); the OIDC flow is preferred for everything else.
-- `token_url` (String) OIDC token endpoint URL. Falls back to `FIANU_TOKEN_URL`.
+- `token_url` (String) OIDC token endpoint URL. Falls back to `FIANU_TOKEN_URL`, then to `https://cloudauth.fianu.io/oauth/token` (the public Fianu IDP). Override only when running against a private deployment or non-standard IDP.

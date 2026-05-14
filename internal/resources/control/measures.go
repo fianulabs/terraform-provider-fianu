@@ -19,7 +19,6 @@ import (
 //
 // If a tree ever needs more depth, the user can split it across multiple
 // `policy_template.measures` entries or compose via Terraform `locals`.
-const maxMeasureDepth = 5
 
 // measureNode is the shape every level of the model exposes. Defining it
 // once means the conversion to fianu_entities.Measure lives in a single

@@ -17,11 +17,12 @@ import (
 	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
 	pkgvariables "github.com/fianulabs/core/v2/external/pkg/variables"
 	transportv1 "github.com/fianulabs/core/v2/external/transport/http/v1"
-	"github.com/fianulabs/terraform-provider-fianu/internal/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
+
+	"github.com/fianulabs/terraform-provider-fianu/internal/provider"
 )
 
 // TestAccFianuControl_CreateReadDestroy is the headline acceptance test for

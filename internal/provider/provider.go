@@ -14,8 +14,6 @@ import (
 
 	fianu "github.com/fianulabs/core/v2/external/pkg/clients/fianu"
 	"github.com/fianulabs/core/v2/external/pkg/connections"
-	controltest "github.com/fianulabs/terraform-provider-fianu/internal/actions/control_test"
-	"github.com/fianulabs/terraform-provider-fianu/internal/resources/control"
 	"github.com/hashicorp/terraform-plugin-framework/action"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -23,6 +21,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+
+	controltest "github.com/fianulabs/terraform-provider-fianu/internal/actions/control_test"
+	"github.com/fianulabs/terraform-provider-fianu/internal/resources/control"
 )
 
 // Provider config env-var keys. Used as fallbacks when the matching HCL

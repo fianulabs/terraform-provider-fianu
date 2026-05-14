@@ -1,3 +1,6 @@
+// Copyright (c) Fianu Labs, Inc. and contributors
+// SPDX-License-Identifier: MPL-2.0
+
 // Package provider hosts the Fianu Terraform provider built on
 // terraform-plugin-framework v1.19+. The provider configures a
 // github.com/fianulabs/core/v2/external/pkg/clients/fianu Client and shares
@@ -31,6 +34,13 @@ const (
 	envClientSecret = "FIANU_CLIENT_SECRET"
 	envTokenURL     = "FIANU_TOKEN_URL"
 	envToken        = "FIANU_TOKEN"
+
+	// defaultTokenURL is the production Fianu OIDC token endpoint (Auth0
+	// custom domain). Applied when neither `token_url` nor FIANU_TOKEN_URL
+	// is set so customers only have to supply `client_id` + `client_secret`
+	// against the public console; override only if running against a
+	// non-standard IDP or a private console deployment.
+	defaultTokenURL = "https://cloudauth.fianu.io/oauth/token"
 )
 
 // Compile-time interface checks lock down what the provider must implement.
@@ -85,7 +95,7 @@ func (p *fianuProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp
 				Sensitive:           true,
 			},
 			"token_url": schema.StringAttribute{
-				MarkdownDescription: "OIDC token endpoint URL. Falls back to `FIANU_TOKEN_URL`.",
+				MarkdownDescription: "OIDC token endpoint URL. Falls back to `FIANU_TOKEN_URL`, then to `https://cloudauth.fianu.io/oauth/token` (the public Fianu IDP). Override only when running against a private deployment or non-standard IDP.",
 				Optional:            true,
 			},
 			"token": schema.StringAttribute{
@@ -186,8 +196,11 @@ func buildAuthenticator(cfg fianuProviderModel) (fianu.Authenticator, error) {
 	clientID := stringOrEnv(cfg.ClientID, envClientID)
 	clientSecret := stringOrEnv(cfg.ClientSecret, envClientSecret)
 	tokenURL := stringOrEnv(cfg.TokenURL, envTokenURL)
+	if tokenURL == "" {
+		tokenURL = defaultTokenURL
+	}
 
-	if clientID == "" || clientSecret == "" || tokenURL == "" {
+	if clientID == "" || clientSecret == "" {
 		return nil, errMissingCredentials{}
 	}
 
@@ -201,5 +214,5 @@ func buildAuthenticator(cfg fianuProviderModel) (fianu.Authenticator, error) {
 type errMissingCredentials struct{}
 
 func (errMissingCredentials) Error() string {
-	return "no credentials configured. Set either `token` (or FIANU_TOKEN) for static-bearer auth, or all three of `client_id`/`client_secret`/`token_url` (or the matching FIANU_CLIENT_ID/FIANU_CLIENT_SECRET/FIANU_TOKEN_URL env vars) for OIDC client-credentials auth."
+	return "no credentials configured. Set either `token` (or FIANU_TOKEN) for static-bearer auth, or both `client_id` and `client_secret` (or the matching FIANU_CLIENT_ID/FIANU_CLIENT_SECRET env vars) for OIDC client-credentials auth. `token_url` defaults to https://cloudauth.fianu.io/oauth/token and only needs to be set when overriding the IDP."
 }

@@ -1,0 +1,110 @@
+name: Bug report
+description: Report an unexpected error, crash, or incorrect behavior in the provider.
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Before submitting, please [search existing issues](https://github.com/fianulabs/terraform-provider-fianu/issues?q=label%3Abug) to check whether someone else has already reported the same problem.
+
+        For security vulnerabilities, please follow [`SECURITY.md`](../SECURITY.md) instead of opening a public issue.
+
+  - type: input
+    id: provider_version
+    attributes:
+      label: Provider version
+      description: Output of `terraform providers` for the `fianulabs/fianu` line.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: terraform_version
+    attributes:
+      label: Terraform version
+      description: Output of `terraform version`.
+      placeholder: "Terraform v1.14.0"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system & architecture
+      placeholder: "macOS 15 arm64 / Linux amd64 / ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected_surface
+    attributes:
+      label: Affected resource(s) or action(s)
+      placeholder: |
+        * `fianu_control`
+        * `fianu_control_test`
+    validations:
+      required: false
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: hcl
+    attributes:
+      label: Minimal reproducer
+      description: |
+        A self-contained HCL snippet (and any referenced files) that reproduces the bug. Bug reports without a reproducer may be closed without investigation.
+      value: |
+        ```hcl
+
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. `terraform init`
+        2. `terraform apply`
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug logs
+      description: |
+        Logs captured with `TF_LOG=DEBUG` (or `TRACE`). Please redact tokens, secrets, and any sensitive identifiers before pasting.
+      value: |
+        <details>
+        <summary>Click to expand</summary>
+
+        ```console
+
+        ```
+        </details>
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Anything else that might be relevant — airgapped environment, non-default Console URL, custom CA, etc.
+    validations:
+      required: false

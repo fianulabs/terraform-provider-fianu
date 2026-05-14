@@ -1,3 +1,6 @@
+// Copyright (c) Fianu Labs, Inc. and contributors
+// SPDX-License-Identifier: MPL-2.0
+
 // Package main is the entrypoint for terraform-provider-fianu.
 //
 // The provider exposes Fianu compliance entities (controls, gates, policies,

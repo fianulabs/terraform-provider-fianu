@@ -1,3 +1,6 @@
+// Copyright (c) Fianu Labs, Inc. and contributors
+// SPDX-License-Identifier: MPL-2.0
+
 // Package base provides the shared StandardEntity envelope (UUID, path,
 // version, metadata, parents, children, roles) that every Fianu entity-style
 // resource embeds. Defining the envelope once keeps schema drift in check and

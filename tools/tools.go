@@ -1,3 +1,6 @@
+// Copyright (c) Fianu Labs, Inc. and contributors
+// SPDX-License-Identifier: MPL-2.0
+
 //go:build tools
 // +build tools
 
@@ -15,5 +18,3 @@ package tools
 import (
 	_ "github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs"
 )
-
-//go:generate go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs generate --provider-name fianu

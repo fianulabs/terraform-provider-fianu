@@ -1,0 +1,126 @@
+name: ci
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: build + vet
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get GitHub App token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.F_GH_DEV_BOT_APP_ID }}
+          private-key: ${{ secrets.F_GH_DEV_BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      # Same composite action the release pipeline uses — checks out the repo,
+      # wires `git config insteadOf` with the app token, sets GOPRIVATE, and
+      # runs `go mod download` so private-module resolution failures surface
+      # before any other step runs.
+      - name: Setup Go with private-module auth
+        uses: fianulabs/tools/integration/setup/go@v2
+        with:
+          gh-access-token: ${{ steps.app-token.outputs.token }}
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get GitHub App token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.F_GH_DEV_BOT_APP_ID }}
+          private-key: ${{ secrets.F_GH_DEV_BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Setup Go with private-module auth
+        uses: fianulabs/tools/integration/setup/go@v2
+        with:
+          gh-access-token: ${{ steps.app-token.outputs.token }}
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  test:
+    name: tests (TF_ACC)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get GitHub App token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.F_GH_DEV_BOT_APP_ID }}
+          private-key: ${{ secrets.F_GH_DEV_BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Setup Go with private-module auth
+        uses: fianulabs/tools/integration/setup/go@v2
+        with:
+          gh-access-token: ${{ steps.app-token.outputs.token }}
+
+      # The fianu_control_test action's acceptance tests shell out to the
+      # `terraform` binary (framework v1.16+ actions need CLI v1.14+).
+      - name: Setup Terraform CLI
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.*"
+          terraform_wrapper: false
+
+      - name: Run tests
+        env:
+          TF_ACC: "1"
+        run: go test -race -count=1 -timeout=20m ./...
+
+  docs:
+    name: docs are up to date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get GitHub App token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.F_GH_DEV_BOT_APP_ID }}
+          private-key: ${{ secrets.F_GH_DEV_BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Setup Go with private-module auth
+        uses: fianulabs/tools/integration/setup/go@v2
+        with:
+          gh-access-token: ${{ steps.app-token.outputs.token }}
+
+      - name: Regenerate docs
+        run: go generate ./...
+
+      # A schema change without `go generate` will show up as a diff against
+      # the committed docs/. Fail the build so reviewers don't have to catch it.
+      - name: Verify docs are clean
+        run: |
+          if ! git diff --quiet -- docs/; then
+            echo "::error::docs/ is out of date — run 'go generate ./...' and commit the result"
+            git --no-pager diff -- docs/
+            exit 1
+          fi

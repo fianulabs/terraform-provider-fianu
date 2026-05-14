@@ -1,0 +1,55 @@
+version: 2
+updates:
+  # Go modules
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - go
+    commit-message:
+      prefix: "deps"
+      include: scope
+    groups:
+      # SDK bumps (fianulabs/core/v2 + sibling modules) cluster together so they
+      # land as one PR — the provider's wire surface is tightly coupled to this
+      # SDK, and reviewing them in isolation hides cross-cutting breakage.
+      fianulabs-sdk:
+        patterns:
+          - "github.com/fianulabs/*"
+      # terraform-plugin-framework + adjacent libs. Patch/minor bumps are
+      # almost always safe and noisy when reviewed individually.
+      terraform-plugin:
+        patterns:
+          - "github.com/hashicorp/terraform-plugin-*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "ci"
+      include: scope
+    groups:
+      actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

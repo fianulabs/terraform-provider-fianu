@@ -1,10 +1,16 @@
 # Terraform Provider for Fianu
 
+[![Release](https://img.shields.io/github/v/release/fianulabs/terraform-provider-fianu?sort=semver)](https://github.com/fianulabs/terraform-provider-fianu/releases)
+[![Registry](https://img.shields.io/badge/registry-fianulabs%2Ffianu-623CE4?logo=terraform)](https://registry.terraform.io/providers/fianulabs/fianu/latest)
+[![Go Reference](https://pkg.go.dev/badge/github.com/fianulabs/terraform-provider-fianu.svg)](https://pkg.go.dev/github.com/fianulabs/terraform-provider-fianu)
+[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-blue.svg)](./LICENSE)
+[![CI](https://github.com/fianulabs/terraform-provider-fianu/actions/workflows/ci.yaml/badge.svg)](https://github.com/fianulabs/terraform-provider-fianu/actions/workflows/ci.yaml)
+
 Manage Fianu compliance entities (controls, gates, policies, environments,
 targets, collections) declaratively from Terraform.
 
 > **Status:** v0.1 — early development. Schema and resource shapes will change
-> before v1.0. Follow [`CHANGELOG.md`](./CHANGELOG.md) once it lands.
+> before v1.0. See [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
 
 ## What v0.1 ships
 
@@ -223,11 +229,20 @@ TF_ACC=1 go test ./...
 ```
 
 The provider depends on the SDK in
-`github.com/fianulabs/core/v2/external/pkg/clients/fianu`. During v0
-development the dependency is resolved via a `replace` directive in
-[`go.mod`](./go.mod) pointing at a sibling checkout of the core monorepo.
-Once the SDK is published as a tagged module, the replace will be removed.
+`github.com/fianulabs/core/v2/external/pkg/clients/fianu`, consumed as a tagged
+module. Sibling-checkout development (via a temporary `replace` directive in
+[`go.mod`](./go.mod)) is supported but not required.
+
+`GOPRIVATE=github.com/fianulabs` is required to fetch the module locally and
+in CI.
+
+## Contributing
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the dev workflow, test commands,
+and the project's commit + PR conventions. Security issues should be reported
+per [`SECURITY.md`](./SECURITY.md).
 
 ## License
 
-TBD.
+Released under the [Mozilla Public License 2.0](./LICENSE) — the standard
+license for HashiCorp-ecosystem Terraform providers.

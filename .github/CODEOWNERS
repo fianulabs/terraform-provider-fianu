@@ -1,0 +1,20 @@
+# CODEOWNERS for terraform-provider-fianu
+#
+# Anyone pushing to a path listed here triggers an automatic review request to
+# the owners. See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+
+# Default owner — every PR routes here unless a more specific rule matches.
+*                                       @fianulabs/platform
+
+# Provider core surface (schema, CRUD, action plumbing)
+/internal/                              @fianulabs/platform
+/main.go                                @fianulabs/platform
+
+# Release pipeline + signing artefacts — restricted because a bad change here
+# can publish a broken or unsigned binary.
+/.github/workflows/                     @fianulabs/platform
+/.goreleaser.yml                        @fianulabs/platform
+
+# Generated docs — owned by the same team that owns the schema, since a schema
+# change without `go generate ./...` will show up as a diff here.
+/docs/                                  @fianulabs/platform

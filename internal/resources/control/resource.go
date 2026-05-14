@@ -1,3 +1,6 @@
+// Copyright (c) Fianu Labs, Inc. and contributors
+// SPDX-License-Identifier: MPL-2.0
+
 // Package control implements the fianu_control Terraform resource.
 //
 // The schema mirrors the production spec.yaml structure used by official
@@ -212,7 +215,7 @@ func (r *controlResource) Create(ctx context.Context, req resource.CreateRequest
 		resp.Diagnostics.AddError("invalid control configuration", err.Error())
 		return
 	}
-	deployResp, err := r.client.Deploy(ctx, fianu.DeployRequest{
+	deployResp, err := r.client.DeployMultipart(ctx, fianu.DeployRequest{
 		EntityType: db_vars.EntityTypeControl,
 		Path:       plan.Path.ValueString(),
 		Entity:     entity,
@@ -264,7 +267,7 @@ func (r *controlResource) Update(ctx context.Context, req resource.UpdateRequest
 		resp.Diagnostics.AddError("invalid control configuration", err.Error())
 		return
 	}
-	deployResp, err := r.client.Deploy(ctx, fianu.DeployRequest{
+	deployResp, err := r.client.DeployMultipart(ctx, fianu.DeployRequest{
 		EntityType: db_vars.EntityTypeControl,
 		Path:       plan.Path.ValueString(),
 		Entity:     entity,

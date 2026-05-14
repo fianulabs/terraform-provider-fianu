@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest a new resource, data source, action, schema attribute, or other enhancement.
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Before filing, please [search existing issues](https://github.com/fianulabs/terraform-provider-fianu/issues?q=label%3Aenhancement) to check whether something similar is already tracked. If you're suggesting an entirely new entity type (gate, policy, environment, target, collection), the README roadmap reflects what we've already committed to.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the user-visible problem or workflow gap, not the proposed implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What should the provider expose? A new resource? An attribute on an existing resource? An action? Sketch the HCL surface you'd want.
+      value: |
+        ```hcl
+
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you've tried with the current provider, or other ways to solve the same problem.
+    validations:
+      required: false
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Links to Fianu Console docs, related issues, or other providers that solve this similarly.
+    validations:
+      required: false

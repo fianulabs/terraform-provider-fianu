@@ -1,9 +1,12 @@
+// Copyright (c) Fianu Labs, Inc. and contributors
+// SPDX-License-Identifier: MPL-2.0
+
 package control_test
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -137,18 +140,15 @@ func newConsoleStub(t *testing.T) *consoleStub {
 	mux.HandleFunc("/entities/artifacts/deploy", func(w http.ResponseWriter, r *http.Request) {
 		stub.deployHits.Add(1)
 
-		// Parse path from the JSON body so the response can echo it back.
-		var req transportv1.DeployEntityFileRequest
-		_ = json.NewDecoder(r.Body).Decode(&req)
+		// Pull the General envelope (for path echo-back), raw entity JSON
+		// (for byte-for-byte assertions), and decoded Control (for shape
+		// assertions) out of the multipart form in one pass.
+		req, rawBytes, entity := decodeMultipartEntity(r)
 		path := ""
 		if req.General.Path != nil {
 			path = *req.General.Path
 		}
-
-		// Decode the raw-content header into a Control once; reuse rawBytes
-		// and entity below.
 		entityName := ""
-		rawBytes, entity := decodeFianuRawContent(r)
 		if rawBytes != nil {
 			stub.capturedRawContent.Store(rawBytes)
 		}
@@ -233,7 +233,7 @@ func newConsoleStub(t *testing.T) *consoleStub {
 		stub.testHits.Add(1)
 
 		var path, name string
-		if _, entity := decodeFianuRawContent(r); entity != nil {
+		if _, _, entity := decodeMultipartEntity(r); entity != nil {
 			stub.capturedTestEntity.Store(entity)
 			path = entity.Path
 			name = entity.Name
@@ -272,25 +272,50 @@ func newConsoleStub(t *testing.T) *consoleStub {
 	return stub
 }
 
-// decodeFianuRawContent pulls the entity that the provider sent via the
-// X-Fianu-Raw-Content header (base64-encoded JSON). Returns the raw bytes
-// alongside the decoded Control. Either may be nil if the header is absent
-// or malformed; the stub treats those as silent no-ops because the tests
-// that depend on captured state assert non-nil directly.
-func decodeFianuRawContent(r *http.Request) ([]byte, *fianu_entities.Control) {
-	hdr := r.Header.Get(pkgvariables.XFianuRawContent)
-	if hdr == "" {
-		return nil, nil
+// decodeMultipartEntity pulls everything the stub needs from a deploy/test
+// request in one pass. The provider sends multipart/form-data with two parts:
+//
+//   - `payload` form field — JSON-marshalled DeployEntityFileRequest (carries
+//     the General envelope with entity_type / path / version).
+//   - `file` file part (filename `entity.json`) — JSON-marshalled
+//     *fianu_entities.Control, i.e. the same bytes the SDK used to send via
+//     the X-Fianu-Raw-Content header before the multipart switch.
+//
+// Returns the parsed envelope, the raw entity bytes, and the decoded
+// Control. Any may be zero/nil if the request is malformed or carries only
+// some of the parts; the stub treats those as silent no-ops because the
+// tests that depend on captured state assert non-nil directly.
+func decodeMultipartEntity(r *http.Request) (transportv1.DeployEntityFileRequest, []byte, *fianu_entities.Control) {
+	var req transportv1.DeployEntityFileRequest
+	if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		return req, nil, nil
 	}
-	raw, err := base64.StdEncoding.DecodeString(hdr)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		return req, nil, nil
+	}
+	if vals, ok := r.MultipartForm.Value["payload"]; ok && len(vals) > 0 {
+		_ = json.Unmarshal([]byte(vals[0]), &req)
+	}
+
+	fileHeaders, ok := r.MultipartForm.File["file"]
+	if !ok || len(fileHeaders) == 0 {
+		return req, nil, nil
+	}
+	fh, err := fileHeaders[0].Open()
 	if err != nil {
-		return nil, nil
+		return req, nil, nil
 	}
+	defer fh.Close()
+	raw, err := io.ReadAll(fh)
+	if err != nil {
+		return req, nil, nil
+	}
+
 	var entity fianu_entities.Control
 	if err := json.Unmarshal(raw, &entity); err != nil {
-		return raw, nil
+		return req, raw, nil
 	}
-	return raw, &entity
+	return req, raw, &entity
 }
 
 // TestAccFianuControl_FullSpec exercises the full HCL schema introduced in

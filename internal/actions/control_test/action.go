@@ -1,3 +1,6 @@
+// Copyright (c) Fianu Labs, Inc. and contributors
+// SPDX-License-Identifier: MPL-2.0
+
 // Package controltest implements the fianu_control_test Terraform Action.
 //
 // Actions (terraform-plugin-framework v1.16+, Terraform CLI v1.14+) are
@@ -161,7 +164,7 @@ func (a *controlTestAction) invokeWithConfig(ctx context.Context, cfg configMode
 		Message: fmt.Sprintf("Testing %s %q with %d evaluation cases…", entityType, cfg.Path.ValueString(), len(cfg.Evaluation)),
 	})
 
-	testResp, err := a.client.TestEntity(ctx, fianu.TestRequest{
+	testResp, err := a.client.TestEntityMultipart(ctx, fianu.TestRequest{
 		EntityType: entityType,
 		Path:       cfg.Path.ValueString(),
 		Entity:     entity,

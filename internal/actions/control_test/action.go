@@ -17,7 +17,7 @@
 //
 // Run on demand:
 //
-//	terraform action fianu_control_test.sast_checkmarx
+//	terraform apply -invoke=action.fianu_control_test.sast_checkmarx
 //
 // Or wire to apply via the resource's lifecycle.action_trigger block so
 // the tests run automatically on every create/update.

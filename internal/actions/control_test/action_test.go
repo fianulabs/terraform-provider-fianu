@@ -60,7 +60,7 @@ func TestAction_InvokeStreamsPerCaseProgress(t *testing.T) {
 }
 
 // TestAction_InvokeFailsOnFailedCase proves a failure in the JUnit report
-// surfaces as an error diagnostic — the signal `terraform action` and CI
+// surfaces as an error diagnostic — the signal `terraform apply -invoke` and CI
 // systems use to mark the run failed.
 func TestAction_InvokeFailsOnFailedCase(t *testing.T) {
 	t.Parallel()

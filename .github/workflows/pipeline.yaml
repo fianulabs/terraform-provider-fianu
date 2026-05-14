@@ -57,7 +57,7 @@ jobs:
       # `release --clean` (no --snapshot) makes goreleaser publish the zips,
       # SHA256SUMS, signature, and manifest as a GitHub Release on the tag.
       - name: GoReleaser → GitHub Release
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           version: latest
           args: release --clean

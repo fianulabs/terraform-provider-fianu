@@ -61,7 +61,7 @@ jobs:
           gh-access-token: ${{ steps.app-token.outputs.token }}
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
 

@@ -15,19 +15,16 @@ builds:
       - -trimpath
     ldflags:
       - '-s -w -X main.version={{.Version}} -X main.commit={{.Commit}}'
-    goos:
-      - freebsd
-      - windows
-      - linux
-      - darwin
-    goarch:
-      - amd64
-      - '386'
-      - arm
-      - arm64
-    ignore:
-      - goos: darwin
-        goarch: '386'
+    # Trimmed from the 15-combo Terraform scaffolding default to the 5 OS/arch
+    # combos Terraform users actually consume — this fits on stock
+    # `ubuntu-latest` (~14GB disk) so we don't need a larger runner SKU.
+    # Add back freebsd / 386 / arm32 / windows-arm if there's demand.
+    targets:
+      - linux_amd64
+      - linux_arm64
+      - darwin_amd64
+      - darwin_arm64
+      - windows_amd64
     binary: '{{ .ProjectName }}_v{{ .Version }}'
 
 archives:

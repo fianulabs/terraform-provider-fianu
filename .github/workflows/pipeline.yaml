@@ -10,11 +10,10 @@ permissions:
 
 jobs:
   release:
-    # GitHub-hosted larger runner (16 cores, ~150GB disk) — needed because
-    # stock `ubuntu-latest` (~14GB disk) fills up partway through goreleaser's
-    # 15-combo cross-compile matrix. No custom runner pool / allowlist
-    # required; metered against the org's larger-runner billing.
-    runs-on: ubuntu-latest-16-cores
+    # Stock GitHub-hosted runner — free for public repos. The goreleaser
+    # matrix in .goreleaser.yml has been trimmed to 5 OS/arch combos so it
+    # fits in ubuntu-latest's ~14GB disk without needing a larger SKU.
+    runs-on: ubuntu-latest
     steps:
       - name: Get GitHub App token
         uses: actions/create-github-app-token@v3

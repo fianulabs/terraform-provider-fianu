@@ -154,7 +154,7 @@ action "fianu_control_test" "sast" {
 Run on demand:
 
 ```bash
-terraform action fianu_control_test.sast
+terraform apply -invoke=action.fianu_control_test.sast
 ```
 
 Or watch it run as part of `terraform apply` — the `lifecycle.action_trigger`

@@ -67,7 +67,7 @@ The schema mirrors the on-disk control package format (`spec.yaml` + `rule.rego`
 
 A Terraform **Action** (framework v1.16+, CLI v1.14+) — imperative, run-on-demand, no state. Same wire endpoint as `fianu console test controls`. Two invocation modes:
 
-1. `terraform action fianu_control_test.foo` — manual.
+1. `terraform apply -invoke=action.fianu_control_test.foo` — manual.
 2. `resource ... { lifecycle { action_trigger { events = [after_create, after_update]; actions = [...] } } }` — runs after every create/update of an associated resource.
 
 The action's `evaluation` schema mirrors `fianu_control.detail.evaluation` so users share cases via `locals` between resource and action. `Invoke` decodes the JUnit-shaped report and streams one `InvokeProgressEvent` per test case; any failure surfaces as a diagnostic so apply exits non-zero. `invokeWithConfig` is the testable seam — bypasses `tfsdk.Config` plumbing.

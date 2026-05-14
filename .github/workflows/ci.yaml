@@ -32,11 +32,19 @@ jobs:
           private-key: ${{ secrets.F_GH_DEV_BOT_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
-      # Local composite (./.github/actions/setup-go) — checks out the repo,
-      # wires `git config insteadOf` with the app token, sets GOPRIVATE, and
-      # runs `go mod download` so private-module resolution failures surface
-      # before any other step runs. Lives in-repo so the public repo has no
-      # cross-org action dependency.
+      # Checkout must precede the local composite below — the runner needs
+      # to read .github/actions/setup-go/action.yaml off the working tree
+      # to even start the composite.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      # Local composite (./.github/actions/setup-go) wires `git config
+      # insteadOf` with the app token, sets GOPRIVATE, and runs
+      # `go mod download` so private-module resolution failures surface
+      # before any other step runs. Lives in-repo so the public repo has
+      # no cross-org action dependency.
       - name: Setup Go with private-module auth
         uses: ./.github/actions/setup-go
         with:
@@ -64,6 +72,14 @@ jobs:
           private-key: ${{ secrets.F_GH_DEV_BOT_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
+      # Checkout must precede the local composite below — the runner needs
+      # to read .github/actions/setup-go/action.yaml off the working tree
+      # to even start the composite.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
       - name: Setup Go with private-module auth
         uses: ./.github/actions/setup-go
         with:
@@ -89,6 +105,14 @@ jobs:
           app-id: ${{ secrets.F_GH_DEV_BOT_APP_ID }}
           private-key: ${{ secrets.F_GH_DEV_BOT_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+
+      # Checkout must precede the local composite below — the runner needs
+      # to read .github/actions/setup-go/action.yaml off the working tree
+      # to even start the composite.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Go with private-module auth
         uses: ./.github/actions/setup-go
@@ -123,6 +147,14 @@ jobs:
           app-id: ${{ secrets.F_GH_DEV_BOT_APP_ID }}
           private-key: ${{ secrets.F_GH_DEV_BOT_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+
+      # Checkout must precede the local composite below — the runner needs
+      # to read .github/actions/setup-go/action.yaml off the working tree
+      # to even start the composite.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Go with private-module auth
         uses: ./.github/actions/setup-go

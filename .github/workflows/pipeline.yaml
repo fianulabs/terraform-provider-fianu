@@ -26,10 +26,18 @@ jobs:
           private-key: ${{ secrets.F_GH_DEV_BOT_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
-      # Local composite (./.github/actions/setup-go) — checks out the repo,
-      # sets `git config insteadOf` with the app token, sets
-      # GOPRIVATE=github.com/fianulabs, and runs `go mod download` so
-      # module-resolution failures surface before goreleaser starts.
+      # Checkout must precede the local composite below — the runner needs
+      # to read .github/actions/setup-go/action.yaml off the working tree
+      # to even start the composite.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      # Local composite (./.github/actions/setup-go) sets `git config
+      # insteadOf` with the app token, sets GOPRIVATE=github.com/fianulabs,
+      # and runs `go mod download` so module-resolution failures surface
+      # before goreleaser starts.
       - name: Setup Go with private-module auth
         uses: ./.github/actions/setup-go
         with:

@@ -10,10 +10,13 @@ permissions:
 
 jobs:
   release:
-    # Self-hosted runner with the disk headroom needed to cross-compile
-    # all 15 OS/arch combos goreleaser builds (the GitHub-hosted runner's
-    # ~14GB fills up partway through the matrix). Matches fianulabs/cli.
-    runs-on: fianu-ubuntu-large
+    # Fianu-managed self-hosted runner sized for cross-compiling all 15
+    # OS/arch combos goreleaser builds (the GitHub-hosted runner's ~14GB
+    # disk fills up partway through the matrix). The `-public-` variant is
+    # the fork-PR-safe runner pool — this workflow only triggers on tag
+    # pushes (no fork PRs ever land here), but using the public-labeled
+    # pool keeps the public-repo policy boundary clean.
+    runs-on: fianu-ubuntu-public-large
     steps:
       - name: Get GitHub App token
         uses: actions/create-github-app-token@v3
@@ -23,15 +26,14 @@ jobs:
           private-key: ${{ secrets.F_GH_DEV_BOT_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
-      # Reuses fianulabs/cli's proven private-module auth pattern: this composite
-      # action checks out the repo, sets `git config insteadOf` with the app
-      # token, sets GOPRIVATE=github.com/fianulabs, and runs `go mod download`
-      # so module-resolution failures surface before goreleaser starts.
+      # Local composite (./.github/actions/setup-go) — checks out the repo,
+      # sets `git config insteadOf` with the app token, sets
+      # GOPRIVATE=github.com/fianulabs, and runs `go mod download` so
+      # module-resolution failures surface before goreleaser starts.
       - name: Setup Go with private-module auth
-        uses: fianulabs/tools/integration/setup/go@v2
+        uses: ./.github/actions/setup-go
         with:
           gh-access-token: ${{ steps.app-token.outputs.token }}
-          version: ${{ github.ref_name }}
 
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@v7

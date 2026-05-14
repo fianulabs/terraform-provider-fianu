@@ -1,0 +1,6 @@
+self-hosted-runner:
+  # Fianu-managed self-hosted runner pool. The `-public-` variants are the
+  # fork-PR-safe pool used for public-repo workflows; without registering
+  # them here actionlint warns "label ... is unknown".
+  labels:
+    - fianu-ubuntu-public-large

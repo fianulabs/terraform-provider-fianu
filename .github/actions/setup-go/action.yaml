@@ -1,0 +1,40 @@
+name: Setup Go with private-module auth
+description: >
+  Checks out the repo with an app-token, installs Go, configures git insteadOf
+  + GOPRIVATE so the private fianulabs/core SDK resolves, then runs
+  `go mod download`. Local replacement for the internal
+  fianulabs/tools/integration/setup/go composite — no cross-repo dependency,
+  safe to run on a public repo.
+
+inputs:
+  gh-access-token:
+    description: GitHub App installation token with read access to fianulabs/core.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ inputs.gh-access-token }}
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26.2'
+        cache: true
+        cache-dependency-path: go.sum
+
+    - name: Configure git for private Go modules
+      shell: bash
+      env:
+        GH_ACCESS_TOKEN: ${{ inputs.gh-access-token }}
+      run: |
+        git config --global url."https://x-access-token:${GH_ACCESS_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+    - name: go mod download
+      shell: bash
+      env:
+        GOPRIVATE: github.com/fianulabs
+      run: go mod download

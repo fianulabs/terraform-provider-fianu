@@ -18,6 +18,10 @@ concurrency:
 jobs:
   build:
     name: build + vet
+    # Skip on fork PRs: secrets (the F_GH_DEV_BOT app credentials) aren't
+    # injected into fork-PR runs, so private-SDK auth would fail. Skipping
+    # surfaces as a "skipped" status check rather than a red failure.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Get GitHub App token
@@ -28,12 +32,13 @@ jobs:
           private-key: ${{ secrets.F_GH_DEV_BOT_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
-      # Same composite action the release pipeline uses — checks out the repo,
+      # Local composite (./.github/actions/setup-go) — checks out the repo,
       # wires `git config insteadOf` with the app token, sets GOPRIVATE, and
       # runs `go mod download` so private-module resolution failures surface
-      # before any other step runs.
+      # before any other step runs. Lives in-repo so the public repo has no
+      # cross-org action dependency.
       - name: Setup Go with private-module auth
-        uses: fianulabs/tools/integration/setup/go@v2
+        uses: ./.github/actions/setup-go
         with:
           gh-access-token: ${{ steps.app-token.outputs.token }}
 
@@ -45,6 +50,10 @@ jobs:
 
   lint:
     name: golangci-lint
+    # Skip on fork PRs: secrets (the F_GH_DEV_BOT app credentials) aren't
+    # injected into fork-PR runs, so private-SDK auth would fail. Skipping
+    # surfaces as a "skipped" status check rather than a red failure.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Get GitHub App token
@@ -56,7 +65,7 @@ jobs:
           owner: ${{ github.repository_owner }}
 
       - name: Setup Go with private-module auth
-        uses: fianulabs/tools/integration/setup/go@v2
+        uses: ./.github/actions/setup-go
         with:
           gh-access-token: ${{ steps.app-token.outputs.token }}
 
@@ -67,6 +76,10 @@ jobs:
 
   test:
     name: tests (TF_ACC)
+    # Skip on fork PRs: secrets (the F_GH_DEV_BOT app credentials) aren't
+    # injected into fork-PR runs, so private-SDK auth would fail. Skipping
+    # surfaces as a "skipped" status check rather than a red failure.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Get GitHub App token
@@ -78,7 +91,7 @@ jobs:
           owner: ${{ github.repository_owner }}
 
       - name: Setup Go with private-module auth
-        uses: fianulabs/tools/integration/setup/go@v2
+        uses: ./.github/actions/setup-go
         with:
           gh-access-token: ${{ steps.app-token.outputs.token }}
 
@@ -97,6 +110,10 @@ jobs:
 
   docs:
     name: docs are up to date
+    # Skip on fork PRs: secrets (the F_GH_DEV_BOT app credentials) aren't
+    # injected into fork-PR runs, so private-SDK auth would fail. Skipping
+    # surfaces as a "skipped" status check rather than a red failure.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Get GitHub App token
@@ -108,7 +125,7 @@ jobs:
           owner: ${{ github.repository_owner }}
 
       - name: Setup Go with private-module auth
-        uses: fianulabs/tools/integration/setup/go@v2
+        uses: ./.github/actions/setup-go
         with:
           gh-access-token: ${{ steps.app-token.outputs.token }}
 

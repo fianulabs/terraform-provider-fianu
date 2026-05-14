@@ -2,13 +2,8 @@ module github.com/fianulabs/terraform-provider-fianu
 
 go 1.26.1
 
-// Local SDK development: pinned to sibling core checkout while DeployMultipart /
-// TestEntityMultipart land. Remove before tagging the next provider release
-// (in tandem with bumping the github.com/fianulabs/core/v2 require below).
-replace github.com/fianulabs/core/v2 => ../core
-
 require (
-	github.com/fianulabs/core/v2 v2.16.56
+	github.com/fianulabs/core/v2 v2.16.62
 	github.com/hashicorp/terraform-plugin-docs v0.25.0
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
 	github.com/hashicorp/terraform-plugin-framework-validators v0.19.0

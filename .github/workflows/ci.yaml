@@ -85,7 +85,7 @@ jobs:
       # The fianu_control_test action's acceptance tests shell out to the
       # `terraform` binary (framework v1.16+ actions need CLI v1.14+).
       - name: Setup Terraform CLI
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "1.14.*"
           terraform_wrapper: false

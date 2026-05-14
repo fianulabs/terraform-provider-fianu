@@ -11,6 +11,7 @@ import (
 	"context"
 	"net/url"
 	"os"
+	"strings"
 
 	fianu "github.com/fianulabs/core/v2/external/pkg/clients/fianu"
 	"github.com/fianulabs/core/v2/external/pkg/connections"
@@ -142,7 +143,7 @@ func (p *fianuProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	}
 
 	sdk := fianu.NewClient(
-		fianu.WithConsole(connections.NewBase(hostURL)),
+		fianu.WithConsole(newConsoleExecutor(hostURL)),
 		fianu.WithAuth(auth),
 	)
 
@@ -216,4 +217,42 @@ type errMissingCredentials struct{}
 
 func (errMissingCredentials) Error() string {
 	return "no credentials configured. Set either `token` (or FIANU_TOKEN) for static-bearer auth, or both `client_id` and `client_secret` (or the matching FIANU_CLIENT_ID/FIANU_CLIENT_SECRET env vars) for OIDC client-credentials auth. `token_url` defaults to https://cloudauth.fianu.io/oauth/token and only needs to be set when overriding the IDP."
+}
+
+// defaultBasePath is prepended to every endpoint when FIANU_HOST has no path
+// component of its own. Fianu Console sits behind an API gateway that routes
+// everything under /api/* to the Console service; without this prefix, hits
+// to /entities/artifacts/deploy return 405 at the edge.
+const defaultBasePath = "/api"
+
+// newConsoleExecutor builds an Executor that honors the path component of
+// FIANU_HOST as a base-path prefix for every Console call. If FIANU_HOST has
+// no path (the common case), defaultBasePath is used. To target a Console
+// without the /api gateway (e.g. an in-cluster direct hit), set FIANU_HOST
+// with an explicit single-slash path: `https://console.internal/`.
+func newConsoleExecutor(hostURL *url.URL) connections.Executor {
+	base := *hostURL
+	base.Path = ""
+	var prefix string
+	switch hostURL.Path {
+	case "":
+		prefix = defaultBasePath
+	default:
+		// Honor explicit path (including "/" which means "no prefix").
+		prefix = strings.TrimRight(hostURL.Path, "/")
+	}
+	return &prefixedExecutor{inner: connections.NewBase(&base), prefix: prefix}
+}
+
+// prefixedExecutor wraps a connections.Executor and prepends a fixed base
+// path to every endpoint string before delegating. Lets the provider point
+// at Fianu Console deployments whose API surface lives at a non-root path
+// (e.g. /api/*) without modifying the SDK's per-endpoint constants.
+type prefixedExecutor struct {
+	inner  connections.Executor
+	prefix string
+}
+
+func (e *prefixedExecutor) Connection(p, m string, params url.Values) connections.Conn {
+	return e.inner.Connection(e.prefix+"/"+strings.TrimLeft(p, "/"), m, params)
 }

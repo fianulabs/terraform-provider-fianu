@@ -43,7 +43,9 @@ func TestAccFianuControl_CreateReadDestroy(t *testing.T) {
 	defer stub.server.Close()
 
 	t.Setenv("TF_ACC", "1")
-	t.Setenv("FIANU_HOST", stub.server.URL)
+	// Trailing slash means "use the empty base path" — disables the provider's
+	// default /api prefix so the stub doesn't need to mount routes under /api.
+	t.Setenv("FIANU_HOST", stub.server.URL+"/")
 	t.Setenv("FIANU_TOKEN", "test-bearer")
 
 	resource.Test(t, resource.TestCase{
@@ -329,7 +331,7 @@ func TestAccFianuControl_FullSpec(t *testing.T) {
 	defer stub.server.Close()
 
 	t.Setenv("TF_ACC", "1")
-	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_HOST", stub.server.URL+"/") // trailing slash disables the default /api prefix
 	t.Setenv("FIANU_TOKEN", "test-bearer")
 
 	resource.Test(t, resource.TestCase{
@@ -499,7 +501,7 @@ func TestAccFianuControl_EvaluationContent_RoundTrips(t *testing.T) {
 	defer stub.server.Close()
 
 	t.Setenv("TF_ACC", "1")
-	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_HOST", stub.server.URL+"/") // trailing slash disables the default /api prefix
 	t.Setenv("FIANU_TOKEN", "test-bearer")
 
 	wanted := "package rule\nimport future.keywords\n\npass if { input.ok }\n"
@@ -555,7 +557,7 @@ func TestAccFianuControl_ActionTriggers(t *testing.T) {
 	defer stub.server.Close()
 
 	t.Setenv("TF_ACC", "1")
-	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_HOST", stub.server.URL+"/") // trailing slash disables the default /api prefix
 	t.Setenv("FIANU_TOKEN", "test-bearer")
 
 	resource.Test(t, resource.TestCase{
@@ -626,7 +628,7 @@ func TestAccFianuControlTest_RejectsInvalidType(t *testing.T) {
 	defer stub.server.Close()
 
 	t.Setenv("TF_ACC", "1")
-	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_HOST", stub.server.URL+"/") // trailing slash disables the default /api prefix
 	t.Setenv("FIANU_TOKEN", "test-bearer")
 
 	resource.Test(t, resource.TestCase{

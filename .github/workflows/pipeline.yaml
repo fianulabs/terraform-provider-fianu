@@ -10,13 +10,11 @@ permissions:
 
 jobs:
   release:
-    # Fianu-managed self-hosted runner sized for cross-compiling all 15
-    # OS/arch combos goreleaser builds (the GitHub-hosted runner's ~14GB
-    # disk fills up partway through the matrix). The `-public-` variant is
-    # the fork-PR-safe runner pool — this workflow only triggers on tag
-    # pushes (no fork PRs ever land here), but using the public-labeled
-    # pool keeps the public-repo policy boundary clean.
-    runs-on: fianu-ubuntu-public-large
+    # GitHub-hosted larger runner (16 cores, ~150GB disk) — needed because
+    # stock `ubuntu-latest` (~14GB disk) fills up partway through goreleaser's
+    # 15-combo cross-compile matrix. No custom runner pool / allowlist
+    # required; metered against the org's larger-runner billing.
+    runs-on: ubuntu-latest-16-cores
     steps:
       - name: Get GitHub App token
         uses: actions/create-github-app-token@v3

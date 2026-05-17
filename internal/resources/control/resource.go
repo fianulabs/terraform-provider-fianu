@@ -20,11 +20,19 @@ package control
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 
+	fianu_types "github.com/fianulabs/core/v2/external/db/types/fianu"
 	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
 	db_vars "github.com/fianulabs/core/v2/external/db/variables"
+	// fianu is the legacy client package; we still rely on it solely for the
+	// in-memory ControlBuilder which builds *fianu_entities.Control structs.
+	// All HTTP traffic now goes through external/pkg/sdk/v2 below.
 	fianu "github.com/fianulabs/core/v2/external/pkg/clients/fianu"
+	sdk "github.com/fianulabs/core/v2/external/pkg/sdk/v2"
 	transportv1 "github.com/fianulabs/core/v2/external/transport/http/v1"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -51,7 +59,7 @@ func NewResource() resource.Resource {
 }
 
 type controlResource struct {
-	client *fianu.Client
+	client *sdk.Client
 }
 
 // controlModel is the Terraform-side state. The envelope is shared via
@@ -193,11 +201,11 @@ func (r *controlResource) Configure(_ context.Context, req resource.ConfigureReq
 	if req.ProviderData == nil {
 		return
 	}
-	client, ok := req.ProviderData.(*fianu.Client)
+	client, ok := req.ProviderData.(*sdk.Client)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"unexpected provider data",
-			fmt.Sprintf("expected *fianu.Client, got %T. This is a provider bug.", req.ProviderData),
+			fmt.Sprintf("expected *sdk.Client, got %T. This is a provider bug.", req.ProviderData),
 		)
 		return
 	}
@@ -210,27 +218,15 @@ func (r *controlResource) Create(ctx context.Context, req resource.CreateRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	entity, err := buildEntity(plan)
-	if err != nil {
-		resp.Diagnostics.AddError("invalid control configuration", err.Error())
+	deployResp, diags := r.deployControl(ctx, plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
-	deployResp, err := r.client.DeployMultipart(ctx, fianu.DeployRequest{
-		EntityType: db_vars.EntityTypeControl,
-		Path:       plan.Path.ValueString(),
-		Entity:     entity,
-	})
-	if err != nil {
-		resp.Diagnostics.AddError("deploy control failed", err.Error())
-		return
-	}
-
 	resp.Diagnostics.Append(hydrateFromDeployResponse(ctx, &plan, deployResp)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 	resp.Diagnostics.Append(resp.Identity.Set(ctx, makeIdentity(&plan))...)
 }
@@ -242,9 +238,17 @@ func (r *controlResource) Read(ctx context.Context, req resource.ReadRequest, re
 		return
 	}
 
-	fetched, err := r.client.FetchControl(state.Path.ValueString())
+	fetched, err := r.client.FetchControl(ctx, state.Path.ValueString(), nil, nil)
 	if err != nil {
-		resp.State.RemoveResource(ctx)
+		// Only a real 404 evicts state. Any other error (network, 5xx,
+		// transient auth) surfaces as a diagnostic so terraform apply doesn't
+		// silently drop a resource that still exists server-side.
+		var apiErr *sdk.APIError
+		if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+			resp.State.RemoveResource(ctx)
+			return
+		}
+		resp.Diagnostics.AddError("fetch control failed", err.Error())
 		return
 	}
 
@@ -262,22 +266,11 @@ func (r *controlResource) Update(ctx context.Context, req resource.UpdateRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	entity, err := buildEntity(plan)
-	if err != nil {
-		resp.Diagnostics.AddError("invalid control configuration", err.Error())
+	deployResp, diags := r.deployControl(ctx, plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
-	deployResp, err := r.client.DeployMultipart(ctx, fianu.DeployRequest{
-		EntityType: db_vars.EntityTypeControl,
-		Path:       plan.Path.ValueString(),
-		Entity:     entity,
-	})
-	if err != nil {
-		resp.Diagnostics.AddError("deploy control failed", err.Error())
-		return
-	}
-
 	resp.Diagnostics.Append(hydrateFromDeployResponse(ctx, &plan, deployResp)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -297,10 +290,46 @@ func (r *controlResource) Delete(ctx context.Context, req resource.DeleteRequest
 	if uuid == "" {
 		return
 	}
-	if err := r.client.ArchiveEntity(db_vars.EntityTypeControl, uuid); err != nil {
+	if _, err := r.client.ArchiveControl(ctx, uuid); err != nil {
+		// 404 means it's already gone — happy path for destroy.
+		var apiErr *sdk.APIError
+		if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+			return
+		}
 		resp.Diagnostics.AddError("archive control failed", err.Error())
 		return
 	}
+}
+
+// deployControl is the shared Create/Update body. Marshals the entity to JSON,
+// builds the General envelope, and POSTs to /api/entities/artifacts/deploy.
+// Same SHA256 idempotency contract as the on-disk-package path the CLI uses.
+func (r *controlResource) deployControl(ctx context.Context, plan controlModel) (*transportv1.DeployEntityFileResponse, diag.Diagnostics) {
+	var diags diag.Diagnostics
+	entity, err := buildEntity(plan)
+	if err != nil {
+		diags.AddError("invalid control configuration", err.Error())
+		return nil, diags
+	}
+	entityJSON, err := json.Marshal(entity)
+	if err != nil {
+		diags.AddError("marshal entity failed", err.Error())
+		return nil, diags
+	}
+	entityType := string(db_vars.EntityTypeControl)
+	path := plan.Path.ValueString()
+	deployReq := transportv1.DeployEntityFileRequest{
+		General: fianu_types.General{
+			EntityType: &entityType,
+			Path:       &path,
+		},
+	}
+	deployResp, err := r.client.DeployEntityFile(ctx, deployReq, entityJSON, false)
+	if err != nil {
+		diags.AddError("deploy control failed", err.Error())
+		return nil, diags
+	}
+	return deployResp, diags
 }
 
 func (r *controlResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

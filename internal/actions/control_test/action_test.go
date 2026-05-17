@@ -8,12 +8,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"sync"
 	"testing"
 
-	fianu "github.com/fianulabs/core/v2/external/pkg/clients/fianu"
-	"github.com/fianulabs/core/v2/external/pkg/connections"
+	sdk "github.com/fianulabs/core/v2/external/pkg/sdk/v2"
 	transportv1 "github.com/fianulabs/core/v2/external/transport/http/v1"
 	"github.com/hashicorp/terraform-plugin-framework/action"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -30,7 +28,7 @@ func TestAction_InvokeStreamsPerCaseProgress(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/entities/artifacts/test", r.URL.Path)
+		assert.Equal(t, "/api/entities/artifacts/test", r.URL.Path)
 		_ = json.NewEncoder(w).Encode(transportv1.TestEntityFileResponse{
 			Path: "checkmarx.sast.vulnerabilities",
 			Name: "SAST",
@@ -144,13 +142,12 @@ func (p *progressCollector) collected() []string {
 
 func newActionForTest(t *testing.T, serverURL string) (*controlTestAction, *action.InvokeResponse, *progressCollector) {
 	t.Helper()
-	u, err := url.Parse(serverURL)
-	require.NoError(t, err)
 
-	client := fianu.NewClient(
-		fianu.WithConsole(connections.NewBase(u)),
-		fianu.WithBearerAuth("test-token"),
+	client, err := sdk.NewClient(
+		sdk.WithBaseURL(serverURL),
+		sdk.WithBearerToken("test-token"),
 	)
+	require.NoError(t, err)
 
 	collector := &progressCollector{}
 	resp := &action.InvokeResponse{

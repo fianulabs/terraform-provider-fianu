@@ -28,10 +28,12 @@ import (
 	"encoding/json"
 	"fmt"
 
+	fianu_types "github.com/fianulabs/core/v2/external/db/types/fianu"
 	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
 	db_vars "github.com/fianulabs/core/v2/external/db/variables"
-	fianu "github.com/fianulabs/core/v2/external/pkg/clients/fianu"
+	sdk "github.com/fianulabs/core/v2/external/pkg/sdk/v2"
 	pkgvariables "github.com/fianulabs/core/v2/external/pkg/variables"
+	transportv1 "github.com/fianulabs/core/v2/external/transport/http/v1"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/action"
 	"github.com/hashicorp/terraform-plugin-framework/action/schema"
@@ -51,7 +53,7 @@ func NewAction() action.Action {
 }
 
 type controlTestAction struct {
-	client *fianu.Client
+	client *sdk.Client
 }
 
 // configModel is the HCL surface. `evaluation` mirrors the fianu_control
@@ -127,11 +129,11 @@ func (a *controlTestAction) Configure(_ context.Context, req action.ConfigureReq
 	if req.ProviderData == nil {
 		return
 	}
-	client, ok := req.ProviderData.(*fianu.Client)
+	client, ok := req.ProviderData.(*sdk.Client)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"unexpected provider data",
-			fmt.Sprintf("expected *fianu.Client, got %T. This is a provider bug.", req.ProviderData),
+			fmt.Sprintf("expected *sdk.Client, got %T. This is a provider bug.", req.ProviderData),
 		)
 		return
 	}
@@ -164,11 +166,20 @@ func (a *controlTestAction) invokeWithConfig(ctx context.Context, cfg configMode
 		Message: fmt.Sprintf("Testing %s %q with %d evaluation cases…", entityType, cfg.Path.ValueString(), len(cfg.Evaluation)),
 	})
 
-	testResp, err := a.client.TestEntityMultipart(ctx, fianu.TestRequest{
-		EntityType: entityType,
-		Path:       cfg.Path.ValueString(),
-		Entity:     entity,
-	})
+	entityJSON, err := json.Marshal(entity)
+	if err != nil {
+		resp.Diagnostics.AddError("marshal entity failed", err.Error())
+		return
+	}
+	entityTypeStr := string(entityType)
+	pathStr := cfg.Path.ValueString()
+	testReq := transportv1.DeployEntityFileRequest{
+		General: fianu_types.General{
+			EntityType: &entityTypeStr,
+			Path:       &pathStr,
+		},
+	}
+	testResp, err := a.client.TestEntityFile(ctx, testReq, entityJSON)
 	if err != nil {
 		resp.Diagnostics.AddError(fmt.Sprintf("test %s failed", entityType), err.Error())
 		return
@@ -187,11 +198,14 @@ func buildTestEntity(cfg configModel, entityType db_vars.EntityType) *fianu_enti
 	c.Type = entityType
 	c.Detail.Evaluation = make([]fianu_entities.Case, len(cfg.Evaluation))
 	for i, ec := range cfg.Evaluation {
-		c.Detail.Evaluation[i] = fianu.NewCase(
-			pkgvariables.ControlResource(ec.Type.ValueString()),
-			ec.Label.ValueString(),
-			[]byte(ec.Content.ValueString()),
-		)
+		c.Detail.Evaluation[i] = fianu_entities.Case{
+			CaseBody: fianu_entities.CaseBody{
+				Type:    pkgvariables.ControlResource(ec.Type.ValueString()),
+				Label:   ec.Label.ValueString(),
+				Enabled: true,
+			},
+			Detail: []byte(ec.Content.ValueString()),
+		}
 	}
 	return c
 }

@@ -3,18 +3,15 @@
 
 // Package provider hosts the Fianu Terraform provider built on
 // terraform-plugin-framework v1.19+. The provider configures a
-// github.com/fianulabs/core/v2/external/pkg/clients/fianu Client and shares
-// it across all resources via ProviderData.
+// github.com/fianulabs/core/v2/external/pkg/sdk/v2 Client and shares it across
+// all resources via ProviderData.
 package provider
 
 import (
 	"context"
-	"net/url"
 	"os"
-	"strings"
 
-	fianu "github.com/fianulabs/core/v2/external/pkg/clients/fianu"
-	"github.com/fianulabs/core/v2/external/pkg/connections"
+	sdk "github.com/fianulabs/core/v2/external/pkg/sdk/v2"
 	"github.com/hashicorp/terraform-plugin-framework/action"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -126,31 +123,34 @@ func (p *fianuProvider) Configure(ctx context.Context, req provider.ConfigureReq
 		return
 	}
 
-	hostURL, err := url.Parse(host)
+	opts := []sdk.Opt{sdk.WithBaseURL(host)}
+
+	if tok := stringOrEnv(cfg.Token, envToken); tok != "" {
+		opts = append(opts, sdk.WithBearerToken(tok))
+	} else {
+		clientID := stringOrEnv(cfg.ClientID, envClientID)
+		clientSecret := stringOrEnv(cfg.ClientSecret, envClientSecret)
+		tokenURL := stringOrEnv(cfg.TokenURL, envTokenURL)
+		if tokenURL == "" {
+			tokenURL = defaultTokenURL
+		}
+		if clientID == "" || clientSecret == "" {
+			resp.Diagnostics.AddError("authentication misconfigured", errMissingCredentials{}.Error())
+			return
+		}
+		opts = append(opts, sdk.WithOIDC(clientID, clientSecret, tokenURL))
+	}
+
+	client, err := sdk.NewClient(opts...)
 	if err != nil {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("host"),
-			"invalid host URL",
-			"Could not parse host as a URL: "+err.Error(),
-		)
+		resp.Diagnostics.AddError("client construction failed", err.Error())
 		return
 	}
 
-	auth, err := buildAuthenticator(cfg)
-	if err != nil {
-		resp.Diagnostics.AddError("authentication misconfigured", err.Error())
-		return
-	}
-
-	sdk := fianu.NewClient(
-		fianu.WithConsole(newConsoleExecutor(hostURL)),
-		fianu.WithAuth(auth),
-	)
-
-	resp.ResourceData = sdk
-	resp.DataSourceData = sdk
-	resp.EphemeralResourceData = sdk
-	resp.ActionData = sdk
+	resp.ResourceData = client
+	resp.DataSourceData = client
+	resp.EphemeralResourceData = client
+	resp.ActionData = client
 }
 
 func (p *fianuProvider) Resources(_ context.Context) []func() resource.Resource {
@@ -185,74 +185,8 @@ func stringOrEnv(attr types.String, envKey string) string {
 	return os.Getenv(envKey)
 }
 
-// buildAuthenticator picks an Authenticator based on what the user supplied.
-// Precedence: explicit token > OIDC client-credentials. Anything else is a
-// configuration error — the SDK's default permission-token mode is reserved
-// for in-cluster service-to-service callers and would silently fail against
-// the public API gateway.
-func buildAuthenticator(cfg fianuProviderModel) (fianu.Authenticator, error) {
-	if tok := stringOrEnv(cfg.Token, envToken); tok != "" {
-		return fianu.NewBearerAuth(tok), nil
-	}
-
-	clientID := stringOrEnv(cfg.ClientID, envClientID)
-	clientSecret := stringOrEnv(cfg.ClientSecret, envClientSecret)
-	tokenURL := stringOrEnv(cfg.TokenURL, envTokenURL)
-	if tokenURL == "" {
-		tokenURL = defaultTokenURL
-	}
-
-	if clientID == "" || clientSecret == "" {
-		return nil, errMissingCredentials{}
-	}
-
-	return fianu.NewOIDCAuth(fianu.OIDCAuthConfig{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-		TokenURL:     tokenURL,
-	}), nil
-}
-
 type errMissingCredentials struct{}
 
 func (errMissingCredentials) Error() string {
 	return "no credentials configured. Set either `token` (or FIANU_TOKEN) for static-bearer auth, or both `client_id` and `client_secret` (or the matching FIANU_CLIENT_ID/FIANU_CLIENT_SECRET env vars) for OIDC client-credentials auth. `token_url` defaults to https://cloudauth.fianu.io/oauth/token and only needs to be set when overriding the IDP."
-}
-
-// defaultBasePath is prepended to every endpoint when FIANU_HOST has no path
-// component of its own. Fianu Console sits behind an API gateway that routes
-// everything under /api/* to the Console service; without this prefix, hits
-// to /entities/artifacts/deploy return 405 at the edge.
-const defaultBasePath = "/api"
-
-// newConsoleExecutor builds an Executor that honors the path component of
-// FIANU_HOST as a base-path prefix for every Console call. If FIANU_HOST has
-// no path (the common case), defaultBasePath is used. To target a Console
-// without the /api gateway (e.g. an in-cluster direct hit), set FIANU_HOST
-// with an explicit single-slash path: `https://console.internal/`.
-func newConsoleExecutor(hostURL *url.URL) connections.Executor {
-	base := *hostURL
-	base.Path = ""
-	var prefix string
-	switch hostURL.Path {
-	case "":
-		prefix = defaultBasePath
-	default:
-		// Honor explicit path (including "/" which means "no prefix").
-		prefix = strings.TrimRight(hostURL.Path, "/")
-	}
-	return &prefixedExecutor{inner: connections.NewBase(&base), prefix: prefix}
-}
-
-// prefixedExecutor wraps a connections.Executor and prepends a fixed base
-// path to every endpoint string before delegating. Lets the provider point
-// at Fianu Console deployments whose API surface lives at a non-root path
-// (e.g. /api/*) without modifying the SDK's per-endpoint constants.
-type prefixedExecutor struct {
-	inner  connections.Executor
-	prefix string
-}
-
-func (e *prefixedExecutor) Connection(p, m string, params url.Values) connections.Conn {
-	return e.inner.Connection(e.prefix+"/"+strings.TrimLeft(p, "/"), m, params)
 }

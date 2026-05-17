@@ -140,7 +140,7 @@ func newConsoleStub(t *testing.T) *consoleStub {
 	stub := &consoleStub{}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/entities/artifacts/deploy", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/entities/artifacts/deploy", func(w http.ResponseWriter, r *http.Request) {
 		stub.deployHits.Add(1)
 
 		// Pull the General envelope (for path echo-back), raw entity JSON
@@ -197,9 +197,9 @@ func newConsoleStub(t *testing.T) *consoleStub {
 		_ = json.NewEncoder(w).Encode(resp)
 	})
 
-	mux.HandleFunc("/controls/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/entities/controls/", func(w http.ResponseWriter, r *http.Request) {
 		stub.fetchHits.Add(1)
-		key := strings.TrimPrefix(r.URL.Path, "/controls/")
+		key := strings.TrimPrefix(r.URL.Path, "/api/entities/controls/")
 		w.Header().Set("Content-Type", "application/json")
 
 		// Echo back the most recently deployed entity so Read doesn't drift
@@ -232,7 +232,7 @@ func newConsoleStub(t *testing.T) *consoleStub {
 	// captures the entity and returns a single passing case so action_triggers
 	// tests can assert the action ran without tripping the action's failure
 	// diagnostic.
-	mux.HandleFunc("/entities/artifacts/test", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/entities/artifacts/test", func(w http.ResponseWriter, r *http.Request) {
 		stub.testHits.Add(1)
 
 		var path, name string
@@ -259,9 +259,9 @@ func newConsoleStub(t *testing.T) *consoleStub {
 		})
 	})
 
-	// ArchiveEntity hits DELETE /archive/<type>/<uuid>. Match anything under
-	// /archive/ to keep the stub forgiving.
-	mux.HandleFunc("/archive/", func(w http.ResponseWriter, r *http.Request) {
+	// ArchiveControl hits DELETE /api/entities/archive/control/<uuid>. Match
+	// anything under that prefix to keep the stub forgiving.
+	mux.HandleFunc("/api/entities/archive/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodDelete {
 			stub.archiveHits.Add(1)
 			w.WriteHeader(http.StatusOK)
@@ -331,7 +331,7 @@ func TestAccFianuControl_FullSpec(t *testing.T) {
 	defer stub.server.Close()
 
 	t.Setenv("TF_ACC", "1")
-	t.Setenv("FIANU_HOST", stub.server.URL+"/") // trailing slash disables the default /api prefix
+	t.Setenv("FIANU_HOST", stub.server.URL)
 	t.Setenv("FIANU_TOKEN", "test-bearer")
 
 	resource.Test(t, resource.TestCase{
@@ -501,7 +501,7 @@ func TestAccFianuControl_EvaluationContent_RoundTrips(t *testing.T) {
 	defer stub.server.Close()
 
 	t.Setenv("TF_ACC", "1")
-	t.Setenv("FIANU_HOST", stub.server.URL+"/") // trailing slash disables the default /api prefix
+	t.Setenv("FIANU_HOST", stub.server.URL)
 	t.Setenv("FIANU_TOKEN", "test-bearer")
 
 	wanted := "package rule\nimport future.keywords\n\npass if { input.ok }\n"
@@ -557,7 +557,7 @@ func TestAccFianuControl_ActionTriggers(t *testing.T) {
 	defer stub.server.Close()
 
 	t.Setenv("TF_ACC", "1")
-	t.Setenv("FIANU_HOST", stub.server.URL+"/") // trailing slash disables the default /api prefix
+	t.Setenv("FIANU_HOST", stub.server.URL)
 	t.Setenv("FIANU_TOKEN", "test-bearer")
 
 	resource.Test(t, resource.TestCase{
@@ -628,7 +628,7 @@ func TestAccFianuControlTest_RejectsInvalidType(t *testing.T) {
 	defer stub.server.Close()
 
 	t.Setenv("TF_ACC", "1")
-	t.Setenv("FIANU_HOST", stub.server.URL+"/") // trailing slash disables the default /api prefix
+	t.Setenv("FIANU_HOST", stub.server.URL)
 	t.Setenv("FIANU_TOKEN", "test-bearer")
 
 	resource.Test(t, resource.TestCase{

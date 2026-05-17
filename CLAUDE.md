@@ -41,7 +41,7 @@ Acceptance tests use `httptest` and don't need a real CLI override. For manual t
 HCL → terraform-plugin-framework → internal/resources/<entity> → fianu.Client (SDK) → Fianu Console
 ```
 
-The provider does not speak HTTP directly. All wire traffic goes through `github.com/fianulabs/core/v2/external/pkg/clients/fianu` (the same SDK the `fianu` CLI uses). Deploys hit `POST /entities/artifacts/deploy`; tests hit `POST /entities/artifacts/test`; reads hit `GET /<entity_type>s/<key>`; deletes hit `DELETE /archive/<type>/<uuid>`. The SDK base64-encodes the JSON-marshaled entity into the `X-Fianu-Raw-Content` header — that's the wire-format difference from the CLI (which tars and multipart-POSTs).
+The provider does not speak HTTP directly. All wire traffic goes through `github.com/fianulabs/core/v2/external/pkg/sdk/v2`, the public API-gateway-aware SDK (distinct from `external/pkg/clients/fianu`, which despite its location speaks the *internal/in-cluster* URL shape and is reserved for service-to-service callers like the `fianu` CLI's pod paths). External routes the provider hits: `POST /api/entities/artifacts/deploy` (deploys), `POST /api/entities/artifacts/test` (action tests), `GET /api/entities/controls/:path` (reads), `DELETE /api/entities/archive/control/:uuid` (deletes). Deploys + tests are multipart `file` parts with the entity JSON; reads/deletes are plain GET/DELETE.
 
 ### Shared envelope (`internal/resources/base/`)
 
@@ -80,7 +80,7 @@ Auth precedence inside `buildAuthenticator`: explicit `token` (or `FIANU_TOKEN`)
 
 `internal/resources/control/resource_test.go::newConsoleStub` stands up a single `httptest.Server` impersonating Console. The stub:
 
-- Decodes `X-Fianu-Raw-Content` (base64 JSON) on every deploy/test call into a `*fianu_entities.Control` and stores it on the stub via `atomic.Value`, so tests assert on the wire payload directly (not just HCL-side state).
+- Decodes the multipart `file` form part on every deploy/test call into a `*fianu_entities.Control` and stores it on the stub via `atomic.Value`, so tests assert on the wire payload directly (not just HCL-side state).
 - Mimics the real idempotency gate: first deploy returns `action="created"`, repeats with the same `X-Fianu-CI-System-Hash` header return `action="skipped"`.
 - Echoes the deployed entity back on `GET /controls/<key>` so Read doesn't drift against user HCL.
 
@@ -88,7 +88,7 @@ Pattern to follow when adding new entity tests: extend `newConsoleStub` with the
 
 ## SDK dependency
 
-The provider depends on `github.com/fianulabs/core/v2` (currently `v2.16.56`). All SDK types/builders live under `external/`: `external/db/types/fianu/entities`, `external/pkg/clients/fianu`, `external/transport/http/v1`, `external/pkg/variables` (constants like `XFianuRawContent`, `CRRule`, `EntityTypeControl`). The README documents a `replace` directive workflow for sibling-checkout development; v0.1 currently consumes the SDK as a tagged module (no `replace` in `go.mod`).
+The provider depends on `github.com/fianulabs/core/v2`. All SDK types/builders live under `external/`: `external/db/types/fianu` (`General` envelope), `external/db/types/fianu/entities` (`Control`, `Case`, `Measure`, ...), `external/pkg/sdk/v2` (the external API-gateway-aware HTTP client — `DeployEntityFile`, `TestEntityFile`, `FetchControl`, `ArchiveControl`), `external/transport/http/v1` (`DeployEntityFileRequest`/`DeployEntityFileResponse`/`TestEntityFileResponse`), `external/pkg/variables` (constants like `CRRule`, `EntityTypeControl`). The legacy `external/pkg/clients/fianu` is still imported for the in-memory `ControlBuilder` only — no HTTP traffic goes through it. The README documents a `replace` directive workflow for sibling-checkout development; the provider currently consumes the SDK as a tagged module (no `replace` in `go.mod`).
 
 `GOPRIVATE=github.com/fianulabs` is required to fetch the module locally and in CI.
 

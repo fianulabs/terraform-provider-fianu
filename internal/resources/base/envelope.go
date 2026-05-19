@@ -10,7 +10,6 @@ package base
 import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/objectplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -83,7 +82,7 @@ func EnvelopeAttributes() map[string]schema.Attribute {
 			Computed:            true,
 		},
 		"version": schema.SingleNestedAttribute{
-			MarkdownDescription: "Server-managed version envelope. `status` and `state` are intentionally not pinned via UseStateForUnknown so workflow-driven changes surface as drift.",
+			MarkdownDescription: "Server-managed version envelope. Every partial update bumps `semantic` and regenerates `uuid` + `timestamp` server-side, so the object is NOT pinned via UseStateForUnknown — plans correctly show `(known after apply)` on any change, and Create/Update refetch the entity post-deploy to populate from server truth.",
 			Computed:            true,
 			Attributes: map[string]schema.Attribute{
 				"semantic":  schema.StringAttribute{Computed: true, MarkdownDescription: "Semantic version (e.g., `1.0.0` or `5`)."},
@@ -92,7 +91,6 @@ func EnvelopeAttributes() map[string]schema.Attribute {
 				"state":     schema.StringAttribute{Computed: true, MarkdownDescription: "Lifecycle state. May be mutated by server-side workflows."},
 				"timestamp": schema.StringAttribute{Computed: true, MarkdownDescription: "RFC3339 timestamp the version was created."},
 			},
-			PlanModifiers: []planmodifier.Object{objectplanmodifier.UseStateForUnknown()},
 		},
 		"parents": schema.ListAttribute{
 			MarkdownDescription: "Parent entity references. Server populates them from cross-entity relationships.",

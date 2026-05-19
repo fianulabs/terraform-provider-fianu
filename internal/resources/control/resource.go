@@ -224,7 +224,7 @@ func (r *controlResource) Create(ctx context.Context, req resource.CreateRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	resp.Diagnostics.Append(hydrateFromDeployResponse(ctx, &plan, deployResp)...)
+	resp.Diagnostics.Append(r.hydrateAfterDeploy(ctx, &plan, deployResp)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -273,7 +273,7 @@ func (r *controlResource) Update(ctx context.Context, req resource.UpdateRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	resp.Diagnostics.Append(hydrateFromDeployResponse(ctx, &plan, deployResp)...)
+	resp.Diagnostics.Append(r.hydrateAfterDeploy(ctx, &plan, deployResp)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -439,6 +439,25 @@ func hydrateFromDeployResponse(ctx context.Context, m *controlModel, resp *trans
 	}
 	env := base.EnvelopeFromDeployMetadata(entityType, resp.Metadata, m.Path.ValueString(), m.Name.ValueString())
 	return m.Hydrate(ctx, env)
+}
+
+// hydrateAfterDeploy is the post-deploy state population used by Create and
+// Update. The /entities/artifacts/deploy response carries a sparse
+// DeploymentMetadata (entityId + path + name + version.semantic only) — the
+// rest of the version envelope (uuid, timestamp, status, state) only exists
+// on the full Control returned by FetchControl. Without this refetch, Update
+// returns state where those fields are empty and trips the framework's
+// "Provider produced inconsistent result after apply" guard, because the
+// plan has them pinned to prior state values.
+//
+// Falls back to the DeploymentMetadata-only hydrate when the refetch fails so
+// a successful deploy isn't blown away by a transient read error.
+func (r *controlResource) hydrateAfterDeploy(ctx context.Context, m *controlModel, deployResp *transportv1.DeployEntityFileResponse) diag.Diagnostics {
+	fetched, err := r.client.FetchControl(ctx, m.Path.ValueString(), nil, nil)
+	if err != nil {
+		return hydrateFromDeployResponse(ctx, m, deployResp)
+	}
+	return hydrateFromControl(ctx, m, fetched)
 }
 
 type identityModel struct {

@@ -262,8 +262,9 @@ func (r *controlResource) Read(ctx context.Context, req resource.ReadRequest, re
 }
 
 func (r *controlResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan controlModel
+	var plan, state controlModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -275,6 +276,13 @@ func (r *controlResource) Update(ctx context.Context, req resource.UpdateRequest
 	resp.Diagnostics.Append(hydrateFromDeployResponse(ctx, &plan, deployResp)...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+	// UUID is immutable for a given control path. The server's partial-update
+	// path returns an empty EntityID in DeploymentMetadata, which would clobber
+	// the identity and trigger Terraform's "Unexpected Identity Change" guard.
+	// Carry the prior state's UUID through so the identity stays stable.
+	if plan.UUID.IsNull() || plan.UUID.IsUnknown() || plan.UUID.ValueString() == "" {
+		plan.UUID = state.UUID
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 	resp.Diagnostics.Append(resp.Identity.Set(ctx, makeIdentity(&plan))...)

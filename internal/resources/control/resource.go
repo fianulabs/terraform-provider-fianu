@@ -348,6 +348,17 @@ func (r *controlResource) ImportState(ctx context.Context, req resource.ImportSt
 		return
 	}
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("path"), key)...)
+	// Pre-populate the detail object so the subsequent Read's req.State.Get
+	// can decode without choking on a null nested object — controlModel.Detail
+	// is a value type, not a pointer, so the framework refuses to convert null
+	// into it. Read overwrites these with the server-fetched values; any
+	// user-authored sections (relations/assets/evaluation/etc.) come from
+	// the HCL on the next plan/apply.
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("detail"), controlDetailModel{
+		FullName:    types.StringNull(),
+		DisplayKey:  types.StringNull(),
+		Description: types.StringNull(),
+	})...)
 }
 
 // buildEntity translates the Terraform model into the entity-side Control by

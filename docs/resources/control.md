@@ -44,7 +44,7 @@ resource "fianu_control" "payment_service_sast" {
 
 - `id` (String) Composite resource identifier in the form `<entity_type>/<entity_key>` (e.g., `control/payment-service-sast`). Used by `terraform import`.
 - `uuid` (String) Server-generated UUID. Stable across versions of the entity.
-- `version` (Attributes) Server-managed version envelope. `status` and `state` are intentionally not pinned via UseStateForUnknown so workflow-driven changes surface as drift. (see [below for nested schema](#nestedatt--version))
+- `version` (Attributes) Server-managed version envelope. Every partial update bumps `semantic` and regenerates `uuid` + `timestamp` server-side, so the object is NOT pinned via UseStateForUnknown — plans correctly show `(known after apply)` on any change, and Create/Update refetch the entity post-deploy to populate from server truth. (see [below for nested schema](#nestedatt--version))
 
 <a id="nestedatt--detail"></a>
 ### Nested Schema for `detail`

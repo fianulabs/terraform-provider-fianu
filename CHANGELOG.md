@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `fianu_policy` resource for managing Fianu Policy entities. Supports the
+  policy type (standard/exception/target), control reference, variations
+  (with per-variation effect, priority, locked flag, and JSON-encoded metric
+  overrides), and asset-scope override. Reads use the unified
+  `entities.Policy` SDK shape; deletes hit
+  `DELETE /api/entities/archive/policy/:uuid`.
+
 ## [0.1.0] - 2026-05-13
 
 Initial public release.

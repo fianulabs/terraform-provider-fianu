@@ -17,7 +17,7 @@ targets, collections) declaratively from Terraform.
 | Resource          | Status        |
 | ----------------- | ------------- |
 | `fianu_control`   | ✅ Available  |
-| `fianu_gate`      | ⏳ v0.1.x     |
+| `fianu_gate`      | ✅ Available  |
 | `fianu_policy`    | ✅ Available  |
 | `fianu_environment` | ⏳ v0.1.x   |
 | `fianu_target`    | ⏳ v0.1.x     |

@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `fianu_gate` resource for managing Fianu Gate entities. Gates are
+  `entities.Control` with `type=gate`; the server force-fills evaluation,
+  policy template, relations, and assets via `applyGateDefaults`, so the
+  HCL surface only exposes the user-authored slice: identity, operational
+  config, environment bindings, an inline `policy` block (deployed as a
+  separate `entities.Policy` targeting the gate), and `pods` (pipeline
+  automation rules deployed via `SetEntityPod` with `pod_type =
+  "gate_check_rule"`). Pods support default protection level plus scoped
+  CEL `matching` overrides for per-environment enforcement.
 - `fianu_policy` resource for managing Fianu Policy entities. Supports the
   policy type (standard/exception/target), control reference, variations
   (with per-variation effect, priority, locked flag, and JSON-encoded metric

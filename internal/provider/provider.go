@@ -22,6 +22,7 @@ import (
 
 	controltest "github.com/fianulabs/terraform-provider-fianu/internal/actions/control_test"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/control"
+	"github.com/fianulabs/terraform-provider-fianu/internal/resources/gate"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/policy"
 )
 
@@ -157,6 +158,7 @@ func (p *fianuProvider) Configure(ctx context.Context, req provider.ConfigureReq
 func (p *fianuProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		control.NewResource,
+		gate.NewResource,
 		policy.NewResource,
 	}
 }

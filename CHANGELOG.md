@@ -8,17 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- `fianu_policy` and `fianu_gate` (nested policy): variation criteria now
-  populate `ExprSource`+`ExprDisplay` instead of `Expr` on
-  `PolicyAssetGroupExpression`. The server's PolicyAssetGroup validator
-  reads `ExprSource` exclusively, so the old wire shape was rejected with
-  `400 F_40001 "invalid criteria"`. Same fix applied to the gate's pod
-  `matching` scopes.
-- `fianu_gate`: the nested policy's `Control.Type` is now set to `"gate"`
-  so the server's policy resolver queries the gate table (not the control
-  table, which was the default for nil `Type` and produced
-  `400 F_40001 "failed to resolve control"` on every gate-with-policy
-  apply).
+- `fianu_policy` and `fianu_gate` (nested policy + pod `matching` scopes):
+  criteria expressions now run through `cel.ParseExpression` provider-side,
+  populating `ExprSource` with the canonical CEL form (with `$` prefixes
+  and `.(type)` casts) and `ExprDisplay` with the raw user form. Without
+  pre-parsing, the server's `validateCELExpressions` runs
+  `cel.CompileExpression` on the raw form and 400s with
+  `"invalid criteria. must be a valid cel expression"`. Matches what the
+  legacy YAML deploy path does in `core/external/db/types/fianu/entities/policy.go:818-843`.
+- `fianu_gate`: nested policy's `Control.Type` set to `"gate"` so the
+  server's policy resolver queries the gate table (was nil → defaulted to
+  `"control"` → `400 "failed to resolve control"`).
+
+### Added
+- `fianu_policy.detail.assets` and `fianu_gate.detail.policy.assets`: list
+  of abstract asset-type paths (e.g., `["repository"]`). Required by the
+  server's `PolicyIsValid` which 400s with
+  `"at least one assigned asset is required"` when `Detail.Assets` is
+  empty. When omitted but `override.asset.types` is set, the provider
+  auto-derives the list from override — same paths encode the same thing.
 
 ### Added
 - `fianu_gate` resource for managing Fianu Gate entities. Gates are

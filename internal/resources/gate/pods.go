@@ -8,6 +8,7 @@ import (
 
 	"github.com/fianulabs/core/v2/external/db/pods"
 	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
+	"github.com/fianulabs/core/v2/external/pkg/cel"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -169,14 +170,20 @@ func buildMatching(in []protectedScopeModel) []fianu_entities.GateProtectedScope
 		if len(s.Expressions) > 0 {
 			scope.PolicyAssetGroup.Expressions = make([]fianu_entities.PolicyAssetGroupExpression, len(s.Expressions))
 			for j, e := range s.Expressions {
-				expr := e.Expression.ValueString()
-				// Populate ExprSource/ExprDisplay (NOT Expr) — same
-				// validator reason as policy criteria. See
-				// internal/resources/policy/criteria.go.
+				raw := e.Expression.ValueString()
+				// Pre-parse via cel.ParseExpression so ExprSource carries
+				// the canonical form the validator expects. See
+				// internal/resources/policy/criteria.go for full rationale.
+				parsed, err := cel.ParseExpression(raw)
+				if err != nil {
+					parsedPtr := raw
+					scope.PolicyAssetGroup.Expressions[j] = fianu_entities.PolicyAssetGroupExpression{Seq: j + 1, Expr: &parsedPtr}
+					continue
+				}
 				scope.PolicyAssetGroup.Expressions[j] = fianu_entities.PolicyAssetGroupExpression{
 					Seq:         j + 1,
-					ExprSource:  expr,
-					ExprDisplay: expr,
+					ExprSource:  parsed,
+					ExprDisplay: raw,
 				}
 			}
 		}

@@ -79,6 +79,7 @@ Required:
 
 Optional:
 
+- `assets` (List of String) Abstract asset-type paths the policy applies to (e.g., `["repository"]`). Required by the server validator unless `override.asset.types` is set — when only override is supplied, the provider auto-derives this list from it.
 - `override` (Attributes) Asset scope override. When set, narrows or expands the asset set the policy applies to beyond the target control's declared scope. (see [below for nested schema](#nestedatt--detail--override))
 
 <a id="nestedatt--detail--control"></a>

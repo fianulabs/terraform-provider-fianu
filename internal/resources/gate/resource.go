@@ -140,6 +140,12 @@ type gatePolicyModel struct {
 
 	Variations []variationModel `tfsdk:"variations"`
 	Override   *overrideModel   `tfsdk:"override"`
+
+	// Assets is the list of abstract asset-type paths the policy applies
+	// to. Required by the server validator unless override is supplied;
+	// the provider auto-derives this from override.asset.types when only
+	// override is set.
+	Assets []types.String `tfsdk:"assets"`
 }
 
 func (r *gateResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -202,6 +208,11 @@ func detailAttribute() schema.SingleNestedAttribute {
 					},
 					"variations": variationsAttribute(),
 					"override":   overrideAttribute(),
+					"assets": schema.ListAttribute{
+						MarkdownDescription: "Abstract asset-type paths the policy applies to (e.g., `[\"repository\"]`). Required unless `override.asset.types` is set — when only override is supplied, the provider auto-derives this list from it.",
+						Optional:            true,
+						ElementType:         types.StringType,
+					},
 				},
 			},
 
@@ -591,6 +602,22 @@ func buildGatePolicyEntity(plan *gateModel) *fianu_entities.Policy {
 	p.StandardEntity.Detail.Variations = buildVariations(policy.Variations)
 	if policy.Override != nil {
 		p.StandardEntity.Detail.Override = policy.Override.toEntity()
+	}
+
+	// Detail.Assets is required by the server validator. Prefer the
+	// explicit assets list; fall back to override.asset.types when only
+	// override is set.
+	assets := policy.Assets
+	if len(assets) == 0 && policy.Override != nil {
+		assets = policy.Override.Asset.Types
+	}
+	for _, typePath := range assets {
+		if typePath.IsNull() || typePath.IsUnknown() || typePath.ValueString() == "" {
+			continue
+		}
+		p.StandardEntity.Detail.Assets = append(p.StandardEntity.Detail.Assets, fianu_entities.PolicyAssetRef{
+			Path: typePath.ValueString(),
+		})
 	}
 	return p
 }

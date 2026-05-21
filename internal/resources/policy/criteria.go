@@ -5,6 +5,7 @@ package policy
 
 import (
 	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
+	"github.com/fianulabs/core/v2/external/pkg/cel"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -80,17 +81,29 @@ func (c *criteriaModel) toEntity() *fianu_entities.PolicyAssetGroup {
 	if len(c.Expressions) > 0 {
 		g.Expressions = make([]fianu_entities.PolicyAssetGroupExpression, len(c.Expressions))
 		for i, e := range c.Expressions {
-			expr := e.Expression.ValueString()
-			// Populate ExprSource and ExprDisplay (NOT Expr). The server's
-			// PolicyAssetGroup validator reads ExprSource; if it's empty
-			// the validator rejects with "invalid criteria". The legacy
-			// YAML→AssetGroup converters at
-			// core/external/db/types/fianu/entities/policy.go:799-844
-			// produce this same shape.
+			raw := e.Expression.ValueString()
+			// Pre-parse the user's pretty CEL into the canonical CEL form
+			// the server's validator expects. The legacy YAML converter at
+			// core/external/db/types/fianu/entities/policy.go:818-843 does
+			// the same thing — runs cel.ParseExpression on the user's
+			// string and puts the parsed result in ExprSource. The
+			// validator at core/pkg/policies/service.go:813 then runs
+			// cel.CompileExpression on ExprSource, which requires the
+			// canonical form (with $ prefixes + .(type) casts), not raw.
+			parsed, err := cel.ParseExpression(raw)
+			if err != nil {
+				// Fall back to the raw form. Server-side Prepare will
+				// retry the parse if Expr is set and ExprSource/Display
+				// are both empty; that's the best we can do without
+				// failing the deploy on a string we couldn't parse.
+				parsedPtr := raw
+				g.Expressions[i] = fianu_entities.PolicyAssetGroupExpression{Seq: i + 1, Expr: &parsedPtr}
+				continue
+			}
 			g.Expressions[i] = fianu_entities.PolicyAssetGroupExpression{
 				Seq:         i + 1,
-				ExprSource:  expr,
-				ExprDisplay: expr,
+				ExprSource:  parsed,
+				ExprDisplay: raw,
 			}
 		}
 	}

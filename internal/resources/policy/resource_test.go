@@ -200,15 +200,20 @@ resource "fianu_policy" "criteria" {
 	if len(crit.Expressions) != 1 {
 		t.Fatalf("expected 1 expression, got %d", len(crit.Expressions))
 	}
-	want := "asset.scm.repository startsWith 'prod-'"
-	if got := crit.Expressions[0].ExprSource; got != want {
-		t.Errorf("ExprSource = %q, want %q", got, want)
+	raw := "asset.scm.repository startsWith 'prod-'"
+	// ExprDisplay carries the raw user CEL; ExprSource carries the parsed
+	// canonical form (with $ prefix + .(type) casts) the server validator
+	// expects to compile.
+	if got := crit.Expressions[0].ExprDisplay; got != raw {
+		t.Errorf("ExprDisplay = %q, want %q", got, raw)
 	}
-	if got := crit.Expressions[0].ExprDisplay; got != want {
-		t.Errorf("ExprDisplay = %q, want %q", got, want)
+	if got := crit.Expressions[0].ExprSource; got == "" {
+		t.Error("ExprSource is empty — provider should have populated it via cel.ParseExpression")
+	} else if got == raw {
+		t.Errorf("ExprSource = %q, expected the *parsed* canonical form (with $ prefix), got the raw form", got)
 	}
 	if crit.Expressions[0].Expr != nil {
-		t.Errorf("Expr should be nil (we send via ExprSource), got %q", *crit.Expressions[0].Expr)
+		t.Errorf("Expr should be nil (provider populates ExprSource instead), got %q", *crit.Expressions[0].Expr)
 	}
 }
 

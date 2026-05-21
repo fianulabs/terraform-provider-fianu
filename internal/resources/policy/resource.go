@@ -98,6 +98,12 @@ type policyDetailModel struct {
 	// Optional — when omitted, the server falls back to the control's asset
 	// scope.
 	Override *overrideModel `tfsdk:"override"`
+
+	// Assets is the list of abstract asset-type paths the policy applies to
+	// (e.g., ["repository"], ["module", "artifact"]). Required by the
+	// server's PolicyIsValid; the provider auto-derives this from
+	// override.asset.types when this field is omitted but override is set.
+	Assets []types.String `tfsdk:"assets"`
 }
 
 type policyControlModel struct {
@@ -150,6 +156,11 @@ func detailAttribute() schema.SingleNestedAttribute {
 			},
 			"variations": variationsAttribute(),
 			"override":   overrideAttribute(),
+			"assets": schema.ListAttribute{
+				MarkdownDescription: "Abstract asset-type paths the policy applies to (e.g., `[\"repository\"]`). Required by the server validator unless `override.asset.types` is set — when only override is supplied, the provider auto-derives this list from it.",
+				Optional:            true,
+				ElementType:         types.StringType,
+			},
 		},
 	}
 }
@@ -333,6 +344,22 @@ func buildEntity(plan policyModel) (*fianu_entities.Policy, error) {
 
 	if plan.Detail.Override != nil {
 		p.StandardEntity.Detail.Override = plan.Detail.Override.toEntity()
+	}
+
+	// Detail.Assets is required by PolicyIsValid (entities/policy.go:967).
+	// Prefer the explicit `assets` HCL field; fall back to mirroring
+	// override.asset.types when only that's set.
+	assets := plan.Detail.Assets
+	if len(assets) == 0 && plan.Detail.Override != nil {
+		assets = plan.Detail.Override.Asset.Types
+	}
+	for _, typePath := range assets {
+		if typePath.IsNull() || typePath.IsUnknown() || typePath.ValueString() == "" {
+			continue
+		}
+		p.StandardEntity.Detail.Assets = append(p.StandardEntity.Detail.Assets, fianu_entities.PolicyAssetRef{
+			Path: typePath.ValueString(),
+		})
 	}
 
 	return p, nil

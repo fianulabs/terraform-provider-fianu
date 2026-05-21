@@ -5,6 +5,7 @@ package gate
 
 import (
 	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
+	"github.com/fianulabs/core/v2/external/pkg/cel"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -80,14 +81,20 @@ func (c *criteriaModel) toEntity() *fianu_entities.PolicyAssetGroup {
 	if len(c.Expressions) > 0 {
 		g.Expressions = make([]fianu_entities.PolicyAssetGroupExpression, len(c.Expressions))
 		for i, e := range c.Expressions {
-			expr := e.Expression.ValueString()
-			// Populate ExprSource and ExprDisplay (NOT Expr). The server's
-			// PolicyAssetGroup validator reads ExprSource; if it's empty
-			// the validator rejects with "invalid criteria".
+			raw := e.Expression.ValueString()
+			// Pre-parse the user's pretty CEL into the canonical form the
+			// server's validator expects. See internal/resources/policy/criteria.go
+			// for the full rationale and source-of-truth reference.
+			parsed, err := cel.ParseExpression(raw)
+			if err != nil {
+				parsedPtr := raw
+				g.Expressions[i] = fianu_entities.PolicyAssetGroupExpression{Seq: i + 1, Expr: &parsedPtr}
+				continue
+			}
 			g.Expressions[i] = fianu_entities.PolicyAssetGroupExpression{
 				Seq:         i + 1,
-				ExprSource:  expr,
-				ExprDisplay: expr,
+				ExprSource:  parsed,
+				ExprDisplay: raw,
 			}
 		}
 	}

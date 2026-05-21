@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `fianu_policy` and `fianu_gate` (nested policy): variation criteria now
+  populate `ExprSource`+`ExprDisplay` instead of `Expr` on
+  `PolicyAssetGroupExpression`. The server's PolicyAssetGroup validator
+  reads `ExprSource` exclusively, so the old wire shape was rejected with
+  `400 F_40001 "invalid criteria"`. Same fix applied to the gate's pod
+  `matching` scopes.
+- `fianu_gate`: the nested policy's `Control.Type` is now set to `"gate"`
+  so the server's policy resolver queries the gate table (not the control
+  table, which was the default for nil `Type` and produced
+  `400 F_40001 "failed to resolve control"` on every gate-with-policy
+  apply).
+
 ### Added
 - `fianu_gate` resource for managing Fianu Gate entities. Gates are
   `entities.Control` with `type=gate`; the server force-fills evaluation,

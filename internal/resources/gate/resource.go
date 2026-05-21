@@ -580,8 +580,13 @@ func buildGatePolicyEntity(plan *gateModel) *fianu_entities.Policy {
 	p.StandardEntity.Type = db_vars.EntityTypePolicy
 
 	p.StandardEntity.Detail.Type = fianu_entities.PolicyType(policyType)
+	// Control.Type MUST be "gate" so the server's policy resolver queries
+	// the gate table — not the control table (which is the default when
+	// Type is nil). See core/pkg/policies/service.go::resolvePolicy.
+	gateTypeStr := string(db_vars.EntityTypeGateControl)
 	p.StandardEntity.Detail.Control = fianu_entities.PolicyControlRef{
 		Path: gatePath,
+		Type: &gateTypeStr,
 	}
 	p.StandardEntity.Detail.Variations = buildVariations(policy.Variations)
 	if policy.Override != nil {

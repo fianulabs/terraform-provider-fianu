@@ -147,6 +147,71 @@ func TestAccFianuPolicy_FullSpec(t *testing.T) {
 	}
 }
 
+// TestAccFianuPolicy_CriteriaPopulatesExprSource regresses a bug where the
+// provider populated PolicyAssetGroupExpression.Expr (raw) instead of
+// ExprSource (parsed CEL). The server's PolicyAssetGroup validator reads
+// ExprSource exclusively and rejects criteria with empty ExprSource as
+// "invalid criteria" — so the wire must carry the CEL string in ExprSource.
+func TestAccFianuPolicy_CriteriaPopulatesExprSource(t *testing.T) {
+	stub := newPolicyStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	cfg := `
+provider "fianu" {}
+resource "fianu_policy" "criteria" {
+  path = "test.policy.criteria"
+  name = "Criteria Test"
+  detail = {
+    type = "standard"
+    control = { path = "test.control.basic" }
+    variations = [
+      {
+        criteria = {
+          expressions = [
+            { expression = "asset.scm.repository startsWith 'prod-'" },
+          ]
+        }
+        policy = jsonencode({ required = true })
+      },
+    ]
+  }
+}
+`
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps:                    []resource.TestStep{{Config: cfg}},
+	})
+
+	captured, _ := stub.capturedEntity.Load().(*fianu_entities.Policy)
+	if captured == nil {
+		t.Fatal("no entity captured")
+	}
+	if len(captured.StandardEntity.Detail.Variations) != 1 {
+		t.Fatalf("expected 1 variation, got %d", len(captured.StandardEntity.Detail.Variations))
+	}
+	crit := captured.StandardEntity.Detail.Variations[0].Criteria
+	if crit == nil {
+		t.Fatal("variation should have criteria")
+	}
+	if len(crit.Expressions) != 1 {
+		t.Fatalf("expected 1 expression, got %d", len(crit.Expressions))
+	}
+	want := "asset.scm.repository startsWith 'prod-'"
+	if got := crit.Expressions[0].ExprSource; got != want {
+		t.Errorf("ExprSource = %q, want %q", got, want)
+	}
+	if got := crit.Expressions[0].ExprDisplay; got != want {
+		t.Errorf("ExprDisplay = %q, want %q", got, want)
+	}
+	if crit.Expressions[0].Expr != nil {
+		t.Errorf("Expr should be nil (we send via ExprSource), got %q", *crit.Expressions[0].Expr)
+	}
+}
+
 const testAccConfigFullSpecPolicy = `
 provider "fianu" {}
 

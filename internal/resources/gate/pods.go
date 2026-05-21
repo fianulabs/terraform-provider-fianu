@@ -170,8 +170,13 @@ func buildMatching(in []protectedScopeModel) []fianu_entities.GateProtectedScope
 			scope.PolicyAssetGroup.Expressions = make([]fianu_entities.PolicyAssetGroupExpression, len(s.Expressions))
 			for j, e := range s.Expressions {
 				expr := e.Expression.ValueString()
+				// Populate ExprSource/ExprDisplay (NOT Expr) — same
+				// validator reason as policy criteria. See
+				// internal/resources/policy/criteria.go.
 				scope.PolicyAssetGroup.Expressions[j] = fianu_entities.PolicyAssetGroupExpression{
-					Expr: &expr,
+					Seq:         j + 1,
+					ExprSource:  expr,
+					ExprDisplay: expr,
 				}
 			}
 		}

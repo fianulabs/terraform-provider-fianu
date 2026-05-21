@@ -81,8 +81,13 @@ func (c *criteriaModel) toEntity() *fianu_entities.PolicyAssetGroup {
 		g.Expressions = make([]fianu_entities.PolicyAssetGroupExpression, len(c.Expressions))
 		for i, e := range c.Expressions {
 			expr := e.Expression.ValueString()
+			// Populate ExprSource and ExprDisplay (NOT Expr). The server's
+			// PolicyAssetGroup validator reads ExprSource; if it's empty
+			// the validator rejects with "invalid criteria".
 			g.Expressions[i] = fianu_entities.PolicyAssetGroupExpression{
-				Expr: &expr,
+				Seq:         i + 1,
+				ExprSource:  expr,
+				ExprDisplay: expr,
 			}
 		}
 	}

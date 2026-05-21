@@ -118,6 +118,14 @@ func TestAccFianuGate_WithPolicy(t *testing.T) {
 	if policy.StandardEntity.Detail.Control.Path != "test.gate.security" {
 		t.Errorf("policy.control.path = %q, want %q", policy.StandardEntity.Detail.Control.Path, "test.gate.security")
 	}
+	// Control.Type MUST be "gate" so the server resolver queries the gate
+	// table, not the control table. Regression for bug where Type was nil
+	// and resolver returned "failed to resolve control" 400s.
+	if got := policy.StandardEntity.Detail.Control.Type; got == nil {
+		t.Error("policy.control.type should be non-nil (=\"gate\"), got nil — server would 404 the resolver")
+	} else if *got != string(db_vars.EntityTypeGateControl) {
+		t.Errorf("policy.control.type = %q, want %q", *got, db_vars.EntityTypeGateControl)
+	}
 	if policy.StandardEntity.Path != "test.gate.security.policy" {
 		t.Errorf("policy auto-path = %q, want %q", policy.StandardEntity.Path, "test.gate.security.policy")
 	}

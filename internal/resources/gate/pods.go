@@ -166,9 +166,9 @@ func buildMatching(in []protectedScopeModel) []fianu_entities.GateProtectedScope
 			ProtectionLevel: fianu_entities.ProtectionLevel(s.ProtectionLevel.ValueString()),
 		}
 		// PolicyAssetGroup embedded; default combineWith=AND.
-		scope.PolicyAssetGroup.CombineWith = "AND"
+		scope.CombineWith = "AND"
 		if len(s.Expressions) > 0 {
-			scope.PolicyAssetGroup.Expressions = make([]fianu_entities.PolicyAssetGroupExpression, len(s.Expressions))
+			scope.Expressions = make([]fianu_entities.PolicyAssetGroupExpression, len(s.Expressions))
 			for j, e := range s.Expressions {
 				raw := e.Expression.ValueString()
 				// Pre-parse via cel.ParseExpression so ExprSource carries
@@ -177,10 +177,10 @@ func buildMatching(in []protectedScopeModel) []fianu_entities.GateProtectedScope
 				parsed, err := cel.ParseExpression(raw)
 				if err != nil {
 					parsedPtr := raw
-					scope.PolicyAssetGroup.Expressions[j] = fianu_entities.PolicyAssetGroupExpression{Seq: j + 1, Expr: &parsedPtr}
+					scope.Expressions[j] = fianu_entities.PolicyAssetGroupExpression{Seq: j + 1, Expr: &parsedPtr}
 					continue
 				}
-				scope.PolicyAssetGroup.Expressions[j] = fianu_entities.PolicyAssetGroupExpression{
+				scope.Expressions[j] = fianu_entities.PolicyAssetGroupExpression{
 					Seq:         j + 1,
 					ExprSource:  parsed,
 					ExprDisplay: raw,

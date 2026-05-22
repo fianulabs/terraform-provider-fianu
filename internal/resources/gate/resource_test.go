@@ -59,8 +59,8 @@ func TestAccFianuGate_Minimal(t *testing.T) {
 	if captured == nil {
 		t.Fatalf("expected the stub to have captured a deployed gate entity, got nil")
 	}
-	if captured.StandardEntity.Type != db_vars.EntityTypeGateControl {
-		t.Errorf("captured entity Type = %q, want %q", captured.StandardEntity.Type, db_vars.EntityTypeGateControl)
+	if captured.Type != db_vars.EntityTypeGateControl {
+		t.Errorf("captured entity Type = %q, want %q", captured.Type, db_vars.EntityTypeGateControl)
 	}
 	if stub.capturedPolicy.Load() != nil {
 		t.Errorf("no nested policy in config, but stub captured a policy deploy")
@@ -115,28 +115,28 @@ func TestAccFianuGate_WithPolicy(t *testing.T) {
 	if policy == nil {
 		t.Fatal("expected policy to be captured")
 	}
-	if policy.StandardEntity.Detail.Control.Path != "test.gate.security" {
-		t.Errorf("policy.control.path = %q, want %q", policy.StandardEntity.Detail.Control.Path, "test.gate.security")
+	if policy.Detail.Control.Path != "test.gate.security" {
+		t.Errorf("policy.control.path = %q, want %q", policy.Detail.Control.Path, "test.gate.security")
 	}
 	// Control.Type MUST be "gate" so the server resolver queries the gate
 	// table, not the control table. Regression for bug where Type was nil
 	// and resolver returned "failed to resolve control" 400s.
-	if got := policy.StandardEntity.Detail.Control.Type; got == nil {
+	if got := policy.Detail.Control.Type; got == nil {
 		t.Error("policy.control.type should be non-nil (=\"gate\"), got nil — server would 404 the resolver")
 	} else if *got != string(db_vars.EntityTypeGateControl) {
 		t.Errorf("policy.control.type = %q, want %q", *got, db_vars.EntityTypeGateControl)
 	}
-	if policy.StandardEntity.Path != "test.gate.security.policy" {
-		t.Errorf("policy auto-path = %q, want %q", policy.StandardEntity.Path, "test.gate.security.policy")
+	if policy.Path != "test.gate.security" {
+		t.Errorf("policy auto-path = %q, want %q", policy.Path, "test.gate.security")
 	}
-	if len(policy.StandardEntity.Detail.Variations) != 1 {
-		t.Fatalf("expected 1 variation, got %d", len(policy.StandardEntity.Detail.Variations))
+	if len(policy.Detail.Variations) != 1 {
+		t.Fatalf("expected 1 variation, got %d", len(policy.Detail.Variations))
 	}
-	if v, ok := policy.StandardEntity.Detail.Variations[0].Policy["required"]; !ok || v != true {
+	if v, ok := policy.Detail.Variations[0].Policy["required"]; !ok || v != true {
 		t.Errorf("variation policy required = %v ok=%v, want true", v, ok)
 	}
-	if len(gate.StandardEntity.Detail.Environments) != 1 {
-		t.Errorf("expected 1 environment binding, got %d", len(gate.StandardEntity.Detail.Environments))
+	if len(gate.Detail.Environments) != 1 {
+		t.Errorf("expected 1 environment binding, got %d", len(gate.Detail.Environments))
 	}
 }
 
@@ -316,14 +316,14 @@ func newGateStub(t *testing.T) *gateStub {
 			var c fianu_entities.Control
 			if err := json.Unmarshal(raw, &c); err == nil {
 				stub.capturedGate.Store(&c)
-				respName = c.StandardEntity.Name
+				respName = c.Name
 			}
 			uuid = "test-gate-uuid"
 		case "policy":
 			var p fianu_entities.Policy
 			if err := json.Unmarshal(raw, &p); err == nil {
 				stub.capturedPolicy.Store(&p)
-				respName = p.StandardEntity.Name
+				respName = p.Name
 			}
 			uuid = "test-policy-uuid"
 		}
@@ -378,12 +378,12 @@ func newGateStub(t *testing.T) *gateStub {
 			return
 		}
 		out := *captured
-		out.StandardEntity.UUID = "test-gate-uuid"
-		out.StandardEntity.Type = db_vars.EntityTypeGateControl
-		out.StandardEntity.Version.Semantic = "1"
-		out.StandardEntity.Version.UUID = "version-uuid"
-		out.StandardEntity.Version.Status = "active"
-		out.StandardEntity.Version.State = "published"
+		out.UUID = "test-gate-uuid"
+		out.Type = db_vars.EntityTypeGateControl
+		out.Version.Semantic = "1"
+		out.Version.UUID = "version-uuid"
+		out.Version.Status = "active"
+		out.Version.State = "published"
 		_ = json.NewEncoder(w).Encode(out)
 	})
 
@@ -397,9 +397,9 @@ func newGateStub(t *testing.T) *gateStub {
 			return
 		}
 		out := *captured
-		out.StandardEntity.UUID = "test-policy-uuid"
+		out.UUID = "test-policy-uuid"
 		out.StandardEntity.Type = db_vars.EntityTypePolicy
-		out.StandardEntity.Version.Semantic = "1"
+		out.Version.Semantic = "1"
 		_ = json.NewEncoder(w).Encode(out)
 	})
 

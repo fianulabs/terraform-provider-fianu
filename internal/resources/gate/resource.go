@@ -288,6 +288,25 @@ func (r *gateResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	// A gate's policy lives at the same entity_key as the gate (different
+	// entity_type namespace). Refresh PolicyUUID off it so Delete still has
+	// a valid UUID to archive after state has been touched by another
+	// process. A 404 just means the policy was removed out-of-band —
+	// surface it via cleared PolicyUUID, not an eviction of the gate.
+	gatePath := state.Path.ValueString()
+	policy, perr := r.client.FetchPolicy(ctx, gatePath, nil, nil)
+	if perr == nil && policy != nil {
+		state.Detail.PolicyUUID = types.StringValue(policy.UUID)
+	} else {
+		var apiErr *sdk.APIError
+		if errors.As(perr, &apiErr) && apiErr.Status == http.StatusNotFound {
+			state.Detail.PolicyUUID = types.StringNull()
+		}
+		// On any other error, leave PolicyUUID alone — transient fetch
+		// failures shouldn't drop the UUID out of state.
+	}
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 	resp.Diagnostics.Append(resp.Identity.Set(ctx, makeIdentity(&state))...)
 }
@@ -515,7 +534,7 @@ func (r *gateResource) deployGatePolicy(ctx context.Context, plan *gateModel) (s
 		return "", diags
 	}
 	entityTypeStr := string(db_vars.EntityTypePolicy)
-	policyPath := entity.StandardEntity.Path
+	policyPath := entity.Path
 	deployReq := transportv1.DeployEntityFileRequest{
 		General: fianu_types.General{
 			EntityType: &entityTypeStr,
@@ -534,7 +553,7 @@ func (r *gateResource) deployGatePolicy(ctx context.Context, plan *gateModel) (s
 	// get the persisted UUID.
 	fetched, err := r.client.FetchPolicy(ctx, policyPath, nil, nil)
 	if err == nil && fetched != nil {
-		return fetched.StandardEntity.UUID, diags
+		return fetched.UUID, diags
 	}
 	return "", diags
 }
@@ -544,24 +563,24 @@ func (r *gateResource) deployGatePolicy(ctx context.Context, plan *gateModel) (s
 // are deliberately left zero — applyGateDefaults overwrites them anyway.
 func buildGateEntity(plan gateModel) *fianu_entities.Control {
 	c := &fianu_entities.Control{}
-	c.StandardEntity.Path = plan.Path.ValueString()
-	c.StandardEntity.Name = plan.Name.ValueString()
-	c.StandardEntity.Type = db_vars.EntityTypeGateControl
+	c.Path = plan.Path.ValueString()
+	c.Name = plan.Name.ValueString()
+	c.Type = db_vars.EntityTypeGateControl
 
-	c.StandardEntity.Detail.Control = &fianu_entities.ControlInfo{
+	c.Detail.Control = &fianu_entities.ControlInfo{
 		FullName:    plan.Detail.FullName.ValueString(),
 		DisplayKey:  plan.Detail.DisplayKey.ValueString(),
 		Description: stringPtr(plan.Detail.Description),
 	}
 	if plan.Detail.Config != nil {
-		c.StandardEntity.Detail.Config = fianu_entities.ControlConfig{
+		c.Detail.Config = fianu_entities.ControlConfig{
 			Scope:              plan.Detail.Config.Scope.ValueString(),
 			Retries:            plan.Detail.Config.Retries.ValueBool(),
 			EvidenceSubmission: plan.Detail.Config.EvidenceSubmission.ValueBool(),
 			ManualAttestations: plan.Detail.Config.ManualAttestations.ValueBool(),
 		}
 	}
-	c.StandardEntity.Detail.Environments = buildEnvironments(plan.Detail.Environments)
+	c.Detail.Environments = buildEnvironments(plan.Detail.Environments)
 	return c
 }
 
@@ -574,7 +593,10 @@ func buildGatePolicyEntity(plan *gateModel) *fianu_entities.Policy {
 
 	policyPath := policy.Path.ValueString()
 	if policyPath == "" {
-		policyPath = gatePath + ".policy"
+		// A gate's policy is stored at the same path as the gate itself —
+		// entity_key is namespaced per entity_type, so `gate/<path>` and
+		// `policy/<path>` coexist without collision.
+		policyPath = gatePath
 	}
 	policyName := policy.Name.ValueString()
 	if policyName == "" {
@@ -586,22 +608,22 @@ func buildGatePolicyEntity(plan *gateModel) *fianu_entities.Policy {
 	}
 
 	p := &fianu_entities.Policy{}
-	p.StandardEntity.Path = policyPath
-	p.StandardEntity.Name = policyName
+	p.Path = policyPath
+	p.Name = policyName
 	p.StandardEntity.Type = db_vars.EntityTypePolicy
 
-	p.StandardEntity.Detail.Type = fianu_entities.PolicyType(policyType)
+	p.Detail.Type = fianu_entities.PolicyType(policyType)
 	// Control.Type MUST be "gate" so the server's policy resolver queries
 	// the gate table — not the control table (which is the default when
 	// Type is nil). See core/pkg/policies/service.go::resolvePolicy.
 	gateTypeStr := string(db_vars.EntityTypeGateControl)
-	p.StandardEntity.Detail.Control = fianu_entities.PolicyControlRef{
+	p.Detail.Control = fianu_entities.PolicyControlRef{
 		Path: gatePath,
 		Type: &gateTypeStr,
 	}
-	p.StandardEntity.Detail.Variations = buildVariations(policy.Variations)
+	p.Detail.Variations = buildVariations(policy.Variations)
 	if policy.Override != nil {
-		p.StandardEntity.Detail.Override = policy.Override.toEntity()
+		p.Detail.Override = policy.Override.toEntity()
 	}
 
 	// Detail.Assets is required by the server validator. Prefer the
@@ -615,7 +637,7 @@ func buildGatePolicyEntity(plan *gateModel) *fianu_entities.Policy {
 		if typePath.IsNull() || typePath.IsUnknown() || typePath.ValueString() == "" {
 			continue
 		}
-		p.StandardEntity.Detail.Assets = append(p.StandardEntity.Detail.Assets, fianu_entities.PolicyAssetRef{
+		p.Detail.Assets = append(p.Detail.Assets, fianu_entities.PolicyAssetRef{
 			Path: typePath.ValueString(),
 		})
 	}

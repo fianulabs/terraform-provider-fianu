@@ -7,17 +7,17 @@
 // logic) and the assets it gets applied to. The resource shape mirrors the
 // on-disk spec.yaml used by `fianu console deploy`:
 //
-//   general:
-//     policy: { name, type, path }
-//   control: { path }
-//   policy:                   # array of variations
-//     - effect: apply|exempt
-//       priority: 0
-//       policy: { ... }       # arbitrary key→value metric overrides
-//   override:
-//     asset:
-//       types: [...]
-//       explicit: [...]
+//	general:
+//	  policy: { name, type, path }
+//	control: { path }
+//	policy:                   # array of variations
+//	  - effect: apply|exempt
+//	    priority: 0
+//	    policy: { ... }       # arbitrary key→value metric overrides
+//	override:
+//	  asset:
+//	    types: [...]
+//	    explicit: [...]
 //
 // Wire-format parity: this resource produces a *fianu_entities.Policy which the
 // server consumes identically to a YAML/JSON deploy from the CLI. Idempotency
@@ -324,26 +324,26 @@ func (r *policyResource) deployPolicy(ctx context.Context, plan policyModel) (*t
 // and PolicyType.
 func buildEntity(plan policyModel) (*fianu_entities.Policy, error) {
 	p := &fianu_entities.Policy{}
-	p.StandardEntity.Path = plan.Path.ValueString()
-	p.StandardEntity.Name = plan.Name.ValueString()
+	p.Path = plan.Path.ValueString()
+	p.Name = plan.Name.ValueString()
 	p.StandardEntity.Type = db_vars.EntityTypePolicy
 
 	// Detail lives on StandardEntity[PolicyDetail].Detail (marshalled under
 	// the JSON "detail" key). Policy ALSO directly embeds PolicyDetail at
 	// the top level for legacy compat, but the nested-under-"detail" path
 	// is what survives marshal/unmarshal cleanly.
-	p.StandardEntity.Detail.Type = fianu_entities.PolicyType(plan.Detail.Type.ValueString())
-	p.StandardEntity.Detail.Control = fianu_entities.PolicyControlRef{
+	p.Detail.Type = fianu_entities.PolicyType(plan.Detail.Type.ValueString())
+	p.Detail.Control = fianu_entities.PolicyControlRef{
 		Path: plan.Detail.Control.Path.ValueString(),
 	}
 	if v := plan.Detail.Control.EntityID; !v.IsNull() && !v.IsUnknown() && v.ValueString() != "" {
 		s := v.ValueString()
-		p.StandardEntity.Detail.Control.EntityID = &s
+		p.Detail.Control.EntityID = &s
 	}
-	p.StandardEntity.Detail.Variations = buildVariations(plan.Detail.Variations)
+	p.Detail.Variations = buildVariations(plan.Detail.Variations)
 
 	if plan.Detail.Override != nil {
-		p.StandardEntity.Detail.Override = plan.Detail.Override.toEntity()
+		p.Detail.Override = plan.Detail.Override.toEntity()
 	}
 
 	// Detail.Assets is required by PolicyIsValid (entities/policy.go:967).
@@ -357,7 +357,7 @@ func buildEntity(plan policyModel) (*fianu_entities.Policy, error) {
 		if typePath.IsNull() || typePath.IsUnknown() || typePath.ValueString() == "" {
 			continue
 		}
-		p.StandardEntity.Detail.Assets = append(p.StandardEntity.Detail.Assets, fianu_entities.PolicyAssetRef{
+		p.Detail.Assets = append(p.Detail.Assets, fianu_entities.PolicyAssetRef{
 			Path: typePath.ValueString(),
 		})
 	}

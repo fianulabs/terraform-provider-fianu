@@ -65,19 +65,19 @@ func TestAccFianuPolicy_Minimal(t *testing.T) {
 	if captured == nil {
 		t.Fatalf("expected the stub to have captured a deployed policy entity, got nil")
 	}
-	if captured.StandardEntity.Detail.Control.Path != "test.control.basic" {
-		t.Errorf("control.path = %q, want %q", captured.StandardEntity.Detail.Control.Path, "test.control.basic")
+	if captured.Detail.Control.Path != "test.control.basic" {
+		t.Errorf("control.path = %q, want %q", captured.Detail.Control.Path, "test.control.basic")
 	}
-	if string(captured.StandardEntity.Detail.Type) != "standard" {
-		t.Errorf("policy.type = %q, want %q", captured.StandardEntity.Detail.Type, "standard")
+	if string(captured.Detail.Type) != "standard" {
+		t.Errorf("policy.type = %q, want %q", captured.Detail.Type, "standard")
 	}
-	if len(captured.StandardEntity.Detail.Variations) != 1 {
-		t.Fatalf("expected 1 variation, got %d", len(captured.StandardEntity.Detail.Variations))
+	if len(captured.Detail.Variations) != 1 {
+		t.Fatalf("expected 1 variation, got %d", len(captured.Detail.Variations))
 	}
-	if string(captured.StandardEntity.Detail.Variations[0].PolicyEffect) != "apply" {
-		t.Errorf("variation[0].effect = %q, want apply", captured.StandardEntity.Detail.Variations[0].PolicyEffect)
+	if string(captured.Detail.Variations[0].PolicyEffect) != "apply" {
+		t.Errorf("variation[0].effect = %q, want apply", captured.Detail.Variations[0].PolicyEffect)
 	}
-	required, ok := captured.StandardEntity.Detail.Variations[0].Policy["required"]
+	required, ok := captured.Detail.Variations[0].Policy["required"]
 	if !ok || required != true {
 		t.Errorf("variation[0].policy.required = %v ok=%v, want true", required, ok)
 	}
@@ -133,16 +133,16 @@ func TestAccFianuPolicy_FullSpec(t *testing.T) {
 	if captured == nil {
 		t.Fatalf("expected captured entity, got nil")
 	}
-	if len(captured.StandardEntity.Detail.Variations) != 2 {
-		t.Fatalf("expected 2 variations, got %d", len(captured.StandardEntity.Detail.Variations))
+	if len(captured.Detail.Variations) != 2 {
+		t.Fatalf("expected 2 variations, got %d", len(captured.Detail.Variations))
 	}
-	if string(captured.StandardEntity.Detail.Variations[1].PolicyEffect) != "exempt" {
-		t.Errorf("second variation effect = %q, want exempt", captured.StandardEntity.Detail.Variations[1].PolicyEffect)
+	if string(captured.Detail.Variations[1].PolicyEffect) != "exempt" {
+		t.Errorf("second variation effect = %q, want exempt", captured.Detail.Variations[1].PolicyEffect)
 	}
-	if captured.StandardEntity.Detail.Override == nil {
+	if captured.Detail.Override == nil {
 		t.Fatal("override block should be set")
 	}
-	if got := captured.StandardEntity.Detail.Override.Asset.Types; len(got) != 1 || got[0] != "repository" {
+	if got := captured.Detail.Override.Asset.Types; len(got) != 1 || got[0] != "repository" {
 		t.Errorf("override.asset.types = %v, want [repository]", got)
 	}
 }
@@ -190,10 +190,10 @@ resource "fianu_policy" "criteria" {
 	if captured == nil {
 		t.Fatal("no entity captured")
 	}
-	if len(captured.StandardEntity.Detail.Variations) != 1 {
-		t.Fatalf("expected 1 variation, got %d", len(captured.StandardEntity.Detail.Variations))
+	if len(captured.Detail.Variations) != 1 {
+		t.Fatalf("expected 1 variation, got %d", len(captured.Detail.Variations))
 	}
-	crit := captured.StandardEntity.Detail.Variations[0].Criteria
+	crit := captured.Detail.Variations[0].Criteria
 	if crit == nil {
 		t.Fatal("variation should have criteria")
 	}
@@ -291,7 +291,7 @@ func newPolicyStub(t *testing.T) *policyStub {
 		entityName := ""
 		if entity != nil {
 			stub.capturedEntity.Store(entity)
-			entityName = entity.StandardEntity.Name
+			entityName = entity.Name
 		}
 
 		// Mirror the server's idempotency gate: a repeat deploy with the
@@ -341,12 +341,12 @@ func newPolicyStub(t *testing.T) *policyStub {
 		}
 
 		out := *captured
-		out.StandardEntity.UUID = "test-policy-uuid"
+		out.UUID = "test-policy-uuid"
 		out.StandardEntity.Type = db_vars.EntityTypePolicy
-		out.StandardEntity.Version.Semantic = "1"
-		out.StandardEntity.Version.UUID = "version-uuid"
-		out.StandardEntity.Version.Status = "active"
-		out.StandardEntity.Version.State = "published"
+		out.Version.Semantic = "1"
+		out.Version.UUID = "version-uuid"
+		out.Version.Status = "active"
+		out.Version.State = "published"
 		_ = json.NewEncoder(w).Encode(out)
 	})
 

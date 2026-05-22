@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `fianu_gate` Read no longer evicts the gate from state after a successful
+  apply. The nested policy is now deployed at the same entity_key as the
+  gate itself (was `<gate.path>.policy` — wrong, the policy and gate share
+  a path under different entity_type namespaces) and Read refreshes
+  `policy_uuid` via a follow-up `FetchPolicy` so Delete still has a valid
+  UUID to archive.
 - `fianu_policy` and `fianu_gate` (nested policy + pod `matching` scopes):
   criteria expressions now run through `cel.ParseExpression` provider-side,
   populating `ExprSource` with the canonical CEL form (with `$` prefixes

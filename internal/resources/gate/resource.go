@@ -341,7 +341,7 @@ func (r *gateResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 			for _, k := range keys {
 				if err := r.client.DeleteEntityPod(ctx, gateUUID, podType, k); err != nil {
 					var apiErr *sdk.APIError
-					if !(errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound) {
+					if !errors.As(err, &apiErr) || apiErr.Status != http.StatusNotFound {
 						resp.Diagnostics.AddError("delete gate pod failed", fmt.Sprintf("key=%q: %s", k, err.Error()))
 						return
 					}
@@ -355,7 +355,7 @@ func (r *gateResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 	if uuid := state.Detail.PolicyUUID.ValueString(); uuid != "" {
 		if _, err := r.client.ArchivePolicy(ctx, uuid); err != nil {
 			var apiErr *sdk.APIError
-			if !(errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound) {
+			if !errors.As(err, &apiErr) || apiErr.Status != http.StatusNotFound {
 				resp.Diagnostics.AddError("archive gate policy failed", err.Error())
 				return
 			}
@@ -424,7 +424,7 @@ func (r *gateResource) applyPlan(ctx context.Context, plan *gateModel, prior *ga
 		if prior != nil && prior.Detail.PolicyUUID.ValueString() != "" {
 			if _, err := r.client.ArchivePolicy(ctx, prior.Detail.PolicyUUID.ValueString()); err != nil {
 				var apiErr *sdk.APIError
-				if !(errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound) {
+				if !errors.As(err, &apiErr) || apiErr.Status != http.StatusNotFound {
 					diags.AddError("archive removed gate policy failed", err.Error())
 					return diags
 				}
@@ -477,7 +477,7 @@ func (r *gateResource) reconcilePods(ctx context.Context, plan *gateModel, prior
 				}
 				if err := r.client.DeleteEntityPod(ctx, gateUUID, podType, k); err != nil {
 					var apiErr *sdk.APIError
-					if !(errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound) {
+					if !errors.As(err, &apiErr) || apiErr.Status != http.StatusNotFound {
 						diags.AddError("delete removed gate pod failed", fmt.Sprintf("key=%q: %s", k, err.Error()))
 						return diags
 					}

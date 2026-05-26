@@ -91,11 +91,18 @@ func variationsAttribute() schema.ListNestedAttribute {
 }
 
 // buildVariations translates the HCL variations into the wire shape the
-// server expects in `policy_rule_sets.policy` — a `{<label>: <uuid>}`
-// map per variation. Each required_controls entry is resolved via
-// FetchControl; each required_gates entry via FetchGate. The label is the
-// user-supplied path/UUID (kept stable so successive applies are
-// idempotent); the value is the resolved entity UUID.
+// server's gate-children CTE expects in `policy_rule_sets.policy` — a
+// `{<uuid>: <uuid>}` map per variation. Each required_controls /
+// required_gates entry is resolved to its entity UUID and used as BOTH
+// the key and the value.
+//
+// Why both key and value are the UUID: PolicyVariationDetail is treated
+// as a flat→nested path map server-side; any dot in a key gets parsed as
+// path nesting (e.g., `"terraform.example.iac.scan": uuid` is rewritten
+// to `{"terraform": {"example": {"iac": {"scan": uuid}}}}` and the
+// gate-children CTE casts the top-level value `{"example": ...}` to
+// ::uuid → fails. UUIDs have no dots, so the map round-trips intact
+// and the CTE can iterate `jsonb_object_keys`/`->>::uuid` cleanly.
 //
 // Resolution failures are returned as diagnostics — callers should
 // short-circuit deploys when buildVariations returns errors so a partial
@@ -119,7 +126,7 @@ func buildVariations(ctx context.Context, client *sdk.Client, in []variationMode
 			if rdiags.HasError() {
 				continue
 			}
-			policy[label] = id
+			policy[id] = id
 		}
 
 		for _, ref := range v.RequiredGates {
@@ -135,7 +142,7 @@ func buildVariations(ctx context.Context, client *sdk.Client, in []variationMode
 			if rdiags.HasError() {
 				continue
 			}
-			policy[label] = id
+			policy[id] = id
 		}
 
 		out[i] = fianu_entities.PolicyVariation{

@@ -141,8 +141,12 @@ func TestAccFianuGate_WithPolicy(t *testing.T) {
 		t.Fatalf("expected exactly 1 entry in variation.policy, got %d: %+v", len(gotPolicy), gotPolicy)
 	}
 	wantUUID := "9919c495-4d74-40b0-a1b8-8e04910ad9ea"
-	if v, ok := gotPolicy[wantUUID]; !ok || v != wantUUID {
-		t.Errorf("variation.policy[%q] = %v ok=%v, want %q", wantUUID, v, ok, wantUUID)
+	v, ok := gotPolicy[wantUUID]
+	if !ok {
+		t.Fatalf("variation.policy missing key %q, got: %+v", wantUUID, gotPolicy)
+	}
+	if v != wantUUID {
+		t.Errorf("variation.policy[%q] = %v, want %q", wantUUID, v, wantUUID)
 	}
 	if len(gate.Detail.Environments) != 1 {
 		t.Errorf("expected 1 environment binding, got %d", len(gate.Detail.Environments))

@@ -28,8 +28,13 @@ resource "fianu_gate" "security" {
 
     policy = {
       variations = [
-        { policy = jsonencode({ required = true }) },
+        { required_controls = ["f.demo.testing.accessibility.result"] },
       ]
+      override = {
+        asset = {
+          types = ["repository"]
+        }
+      }
     }
 
     pods = [
@@ -147,7 +152,7 @@ Required:
 
 Required:
 
-- `variations` (Attributes List) Policy variations. Each variation pairs an effect (apply or exempt) with metric overrides for the target control. Server evaluates variations in priority order; the first matching variation wins. (see [below for nested schema](#nestedatt--detail--policy--variations))
+- `variations` (Attributes List) Variations of the gate's policy. Each variation pairs an effect (apply or exempt) with the set of controls and gates that must pass for the gate to pass when the variation's `criteria` matches. The server evaluates variations in priority order; the first matching variation wins. Leave `criteria` unset for an unconditional requirement set. (see [below for nested schema](#nestedatt--detail--policy--variations))
 
 Optional:
 
@@ -160,16 +165,14 @@ Optional:
 <a id="nestedatt--detail--policy--variations"></a>
 ### Nested Schema for `detail.policy.variations`
 
-Required:
-
-- `policy` (String) JSON-encoded map of metric overrides keyed by the control's policy_template measure names. Use `jsonencode({ required = true, vulnerabilities = { critical = { maximum = 0 } } })` to author.
-
 Optional:
 
 - `criteria` (Attributes) Asset group criteria. Restricts this variation to assets matching a set of CEL expressions. When omitted, the variation applies to every asset in the policy's scope. (see [below for nested schema](#nestedatt--detail--policy--variations--criteria))
-- `effect` (String) What this variation does. `apply` runs the control with the supplied metric overrides; `exempt` skips evaluation entirely for matching assets. Defaults to `apply` when omitted (server-side default).
+- `effect` (String) What this variation does. `apply` enforces the required_controls/required_gates; `exempt` skips the gate entirely for matching assets. Defaults to `apply` when omitted.
 - `locked` (Boolean) When true, prevents downstream tenants from overriding this variation. Defaults to false.
-- `priority` (Number) Evaluation priority. Lower numbers run first. Defaults to 0 when omitted.
+- `priority` (Number) Evaluation priority. Lower numbers run first. Defaults to 0.
+- `required_controls` (List of String) Controls that must pass for this variation to pass. Each entry is a control path (e.g., `terraform.example.iac.scan`) or an entity UUID. Paths are resolved to UUIDs at apply via the Console API.
+- `required_gates` (List of String) Other gates that must pass for this variation to pass. Each entry is a gate path or entity UUID. Use this to chain gates (e.g., "unit tests must pass before the security gate runs").
 
 <a id="nestedatt--detail--policy--variations--criteria"></a>
 ### Nested Schema for `detail.policy.variations.criteria`

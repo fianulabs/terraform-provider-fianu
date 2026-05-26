@@ -13,8 +13,13 @@ resource "fianu_gate" "security" {
 
     policy = {
       variations = [
-        { policy = jsonencode({ required = true }) },
+        { required_controls = ["f.demo.testing.accessibility.result"] },
       ]
+      override = {
+        asset = {
+          types = ["repository"]
+        }
+      }
     }
 
     pods = [

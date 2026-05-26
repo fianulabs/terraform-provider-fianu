@@ -527,7 +527,11 @@ func (r *gateResource) deployGate(ctx context.Context, plan gateModel) (*transpo
 // targeting the gate. Returns the policy's UUID for state tracking.
 func (r *gateResource) deployGatePolicy(ctx context.Context, plan *gateModel) (string, diag.Diagnostics) {
 	var diags diag.Diagnostics
-	entity := buildGatePolicyEntity(plan)
+	entity, buildDiags := r.buildGatePolicyEntity(ctx, plan)
+	diags.Append(buildDiags...)
+	if diags.HasError() {
+		return "", diags
+	}
 	entityJSON, err := json.Marshal(entity)
 	if err != nil {
 		diags.AddError("marshal gate policy failed", err.Error())
@@ -585,8 +589,10 @@ func buildGateEntity(plan gateModel) *fianu_entities.Control {
 }
 
 // buildGatePolicyEntity constructs a *entities.Policy targeting the gate.
-// Defaults: path = "<gate.path>.policy", name = gate.Name, type = "standard".
-func buildGatePolicyEntity(plan *gateModel) *fianu_entities.Policy {
+// Defaults: path = gate.path, name = gate.Name, type = "standard". Variations
+// are resolved via the SDK (each required_controls/required_gates entry → its
+// entity UUID), so we need ctx + the configured client here.
+func (r *gateResource) buildGatePolicyEntity(ctx context.Context, plan *gateModel) (*fianu_entities.Policy, diag.Diagnostics) {
 	gatePath := plan.Path.ValueString()
 	gateName := plan.Name.ValueString()
 	policy := plan.Detail.Policy
@@ -621,7 +627,11 @@ func buildGatePolicyEntity(plan *gateModel) *fianu_entities.Policy {
 		Path: gatePath,
 		Type: &gateTypeStr,
 	}
-	p.Detail.Variations = buildVariations(policy.Variations)
+	variations, vDiags := buildVariations(ctx, r.client, policy.Variations)
+	if vDiags.HasError() {
+		return nil, vDiags
+	}
+	p.Detail.Variations = variations
 	if policy.Override != nil {
 		p.Detail.Override = policy.Override.toEntity()
 	}
@@ -641,7 +651,7 @@ func buildGatePolicyEntity(plan *gateModel) *fianu_entities.Policy {
 			Path: typePath.ValueString(),
 		})
 	}
-	return p
+	return p, nil
 }
 
 // hydrateAfterGateDeploy refetches the gate after Create/Update so the

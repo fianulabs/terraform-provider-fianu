@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking)
+- `fianu_gate.detail.policy.variations[]` no longer accepts the free-form
+  `policy` JSON map that mirrored `fianu_policy`. A gate's policy template
+  is server-fixed to a single `controls` measure whose value is an array
+  of child-entity UUIDs, so authoring arbitrary measure overrides
+  per-variation never made sense — and shipping the wrong shape corrupted
+  the row in `policy_rule_sets.policy` enough that `FetchGate` started
+  returning a phantom 404 (see "Fixed" below).
+- Variations now take two explicit lists matching the Console UI's "Gate
+  Requirements" dialog: `required_controls` and `required_gates`. Each
+  entry is a path (`"terraform.example.iac.scan"`) or an entity UUID; the
+  provider resolves paths via `FetchControl` / `FetchGate` at apply time
+  and ships the wire-shape `{<label>: <uuid>}` the gate-children CTE
+  expects. Migration: replace each `policy = jsonencode({...})` with
+  `required_controls = ["..."]` and/or `required_gates = ["..."]`.
+
 ### Fixed
 - `fianu_gate` Read no longer evicts the gate from state after a successful
   apply. The nested policy is now deployed at the same entity_key as the

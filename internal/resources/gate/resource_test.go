@@ -132,8 +132,17 @@ func TestAccFianuGate_WithPolicy(t *testing.T) {
 	if len(policy.Detail.Variations) != 1 {
 		t.Fatalf("expected 1 variation, got %d", len(policy.Detail.Variations))
 	}
-	if v, ok := policy.Detail.Variations[0].Policy["required"]; !ok || v != true {
-		t.Errorf("variation policy required = %v ok=%v, want true", v, ok)
+	// Variation's Policy map should be the resolved {<label>: <uuid>} shape
+	// the server's gate-children CTE expects — NOT a free-form measures
+	// payload. Regression for the bug where free-form measure JSON corrupted
+	// the row and broke single-row FetchGate.
+	gotPolicy := policy.Detail.Variations[0].Policy
+	if len(gotPolicy) != 1 {
+		t.Fatalf("expected exactly 1 entry in variation.policy, got %d: %+v", len(gotPolicy), gotPolicy)
+	}
+	wantUUID := "9919c495-4d74-40b0-a1b8-8e04910ad9ea"
+	if v, ok := gotPolicy[wantUUID]; !ok || v != wantUUID {
+		t.Errorf("variation.policy[%q] = %v ok=%v, want %q", wantUUID, v, ok, wantUUID)
 	}
 	if len(gate.Detail.Environments) != 1 {
 		t.Errorf("expected 1 environment binding, got %d", len(gate.Detail.Environments))
@@ -162,7 +171,7 @@ resource "fianu_gate" "security" {
 
     policy = {
       variations = [
-        { policy = jsonencode({ required = true }) },
+        { required_controls = ["9919c495-4d74-40b0-a1b8-8e04910ad9ea"] },
       ]
       override = {
         asset = {
@@ -235,12 +244,17 @@ resource "fianu_gate" "security" {
               { expression = "asset.scm.repository startsWith 'prod-'" },
             ]
           }
-          policy = jsonencode({ required = true, vulnerabilities = { critical = { maximum = 0 } } })
+          required_controls = ["a868c707-850a-474a-8e66-77a240de4305"]
         },
         {
-          policy = jsonencode({ required = true, vulnerabilities = { critical = { maximum = 5 } } })
+          required_controls = ["a868c707-850a-474a-8e66-77a240de4305"]
         },
       ]
+      override = {
+        asset = {
+          types = ["repository"]
+        }
+      }
     }
 
     pods = [

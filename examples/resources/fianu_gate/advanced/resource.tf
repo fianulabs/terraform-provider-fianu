@@ -22,53 +22,47 @@ resource "fianu_gate" "tiered_security" {
       { path = "env.staging" },
     ]
 
+    # Each variation's required_controls / required_gates list is resolved
+    # to entity UUIDs at apply time and shipped as the gate's policy. The
+    # variation's `criteria` decides which assets the requirement set
+    # applies to; the first matching variation wins (priority-ordered).
     policy = {
       variations = [
-        # Tier 1 — payments-team production repos, strict thresholds.
+        # Tier 1 — payments-team production repos. Both the heavy SAST
+        # control and the unit-test control must pass.
         {
           criteria = {
             expressions = [
-              { expression = "asset.labels exists tier && asset.labels.tier == 'prod' && asset.properties.owner == 'team-payments'" },
+              { expression = "asset.properties.owner == 'team-payments'" },
             ]
           }
-          policy = jsonencode({
-            required = true
-            vulnerabilities = {
-              critical = { maximum = 0 }
-              high     = { maximum = 0 }
-              medium   = { maximum = 2 }
-            }
-          })
+          required_controls = [
+            "sast.checkmarx",
+            "unit.tests.pytest",
+          ]
         },
 
-        # Tier 2 — preview/staging branches under payments repos.
+        # Tier 2 — staging assets get a lighter check (unit tests only).
         {
           criteria = {
             expressions = [
-              { expression = "asset.scm.repository matches '^my-org/payments-.+' && (asset.identifier startsWith 'preview-' || asset.identifier startsWith 'staging-')" },
+              { expression = "asset.scm.repository startsWith 'staging-'" },
             ]
           }
-          policy = jsonencode({
-            required = true
-            vulnerabilities = {
-              critical = { maximum = 0 }
-              high     = { maximum = 3 }
-            }
-          })
+          required_controls = ["unit.tests.pytest"]
         },
 
-        # Tier 3 — catch-all.
+        # Tier 3 — catch-all: depend on the upstream "must merge to main"
+        # gate. Chain gates with required_gates rather than required_controls.
         {
-          policy = jsonencode({
-            required = true
-            vulnerabilities = {
-              critical = { maximum = 0 }
-              high     = { maximum = 10 }
-              medium   = { maximum = 25 }
-            }
-          })
+          required_gates = ["f.gate.merge.policy"]
         },
       ]
+      override = {
+        asset = {
+          types = ["repository"]
+        }
+      }
     }
 
     pods = [

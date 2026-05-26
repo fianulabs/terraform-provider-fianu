@@ -15,18 +15,21 @@ resource "fianu_gate" "baseline_security" {
     ]
 
     # Inline policy — deployed as a separate entities.Policy targeting this
-    # gate. Auto-pathed at <gate.path>.policy (so f.gate.security.baseline.policy).
+    # gate at the same entity_key. The gate's policy template is fixed to
+    # a single `controls` measure; the provider builds the wire payload
+    # from required_controls / required_gates by resolving each entry to
+    # its entity UUID at apply time.
     policy = {
       variations = [
         {
-          policy = jsonencode({
-            required = true
-            vulnerabilities = {
-              critical = { maximum = 0 }
-            }
-          })
+          required_controls = ["terraform.example.iac.scan"]
         },
       ]
+      override = {
+        asset = {
+          types = ["repository"]
+        }
+      }
     }
 
     pods = [

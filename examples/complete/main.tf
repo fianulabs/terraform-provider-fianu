@@ -19,7 +19,7 @@ provider "fianu" {
 
 variable "fianu_host" {
   type    = string
-  default = "https://console.fianu.io"
+  default = "https://app.fianu.io"
 }
 
 variable "fianu_client_id" {

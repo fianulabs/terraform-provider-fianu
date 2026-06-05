@@ -36,7 +36,7 @@ jobs:
       # to read .github/actions/setup-go/action.yaml off the working tree
       # to even start the composite.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ steps.app-token.outputs.token }}
 
@@ -76,7 +76,7 @@ jobs:
       # to read .github/actions/setup-go/action.yaml off the working tree
       # to even start the composite.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ steps.app-token.outputs.token }}
 
@@ -110,7 +110,7 @@ jobs:
       # to read .github/actions/setup-go/action.yaml off the working tree
       # to even start the composite.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ steps.app-token.outputs.token }}
 
@@ -152,7 +152,7 @@ jobs:
       # to read .github/actions/setup-go/action.yaml off the working tree
       # to even start the composite.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ steps.app-token.outputs.token }}
 

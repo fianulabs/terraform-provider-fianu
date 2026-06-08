@@ -5,19 +5,23 @@
 //
 // A policy is the bridge between a control (which defines compliance evaluation
 // logic) and the assets it gets applied to. The resource shape mirrors the
-// on-disk spec.yaml used by `fianu console deploy`:
+// canonical entity YAML used by `fianu console deploy`:
 //
-//	general:
-//	  policy: { name, type, path }
-//	control: { path }
-//	policy:                   # array of variations
-//	  - effect: apply|exempt
-//	    priority: 0
-//	    policy: { ... }       # arbitrary key→value metric overrides
-//	override:
-//	  asset:
-//	    types: [...]
-//	    explicit: [...]
+//	name: ...
+//	path: ...
+//	type: policy
+//	detail:
+//	  type: standard|exception|target
+//	  control:
+//	    path: ...
+//	  policy:                   # array of variations
+//	    - effect: apply|exempt
+//	      priority: 0
+//	      criteria:
+//	        asset: { type: repository }          # inline asset binding
+//	        expressions: [{ expression: "..." }] # OR
+//	        indexes: [{ path: "..." }]           # reference existing index
+//	      policy: { ... }       # arbitrary key→value metric overrides
 //
 // Wire-format parity: this resource produces a *fianu_entities.Policy which the
 // server consumes identically to a YAML/JSON deploy from the CLI. Idempotency
@@ -77,8 +81,8 @@ type policyModel struct {
 
 // policyDetailModel mirrors fianu_entities.PolicyDetail minus the envelope-ish
 // pieces (which live on EnvelopeModel) and the heavier optional sections
-// (expiration, justification, assets, form) — those will be added in
-// follow-up minor versions once a customer needs them.
+// (expiration, justification, form) — those will be added in follow-up
+// minor versions once a customer needs them.
 type policyDetailModel struct {
 	// Type maps to General.Policy.Type — one of standard/exception/target.
 	Type types.String `tfsdk:"type"`
@@ -89,21 +93,11 @@ type policyDetailModel struct {
 	Control policyControlModel `tfsdk:"control"`
 
 	// Variations encode the policy[] array. Each variation has an effect,
-	// priority, and a JSON-encoded policy detail (arbitrary key→value map of
-	// metric overrides — kept as a string because HCL can't express truly
-	// dynamic schemas cleanly).
+	// priority, an optional criteria (asset / expressions / indexes), and a
+	// JSON-encoded policy detail (arbitrary key→value map of metric
+	// overrides — kept as a string because HCL can't express truly dynamic
+	// schemas cleanly).
 	Variations []variationModel `tfsdk:"variations"`
-
-	// Override controls which asset types/instances the policy applies to.
-	// Optional — when omitted, the server falls back to the control's asset
-	// scope.
-	Override *overrideModel `tfsdk:"override"`
-
-	// Assets is the list of abstract asset-type paths the policy applies to
-	// (e.g., ["repository"], ["module", "artifact"]). Required by the
-	// server's PolicyIsValid; the provider auto-derives this from
-	// override.asset.types when this field is omitted but override is set.
-	Assets []types.String `tfsdk:"assets"`
 }
 
 type policyControlModel struct {
@@ -155,12 +149,6 @@ func detailAttribute() schema.SingleNestedAttribute {
 				},
 			},
 			"variations": variationsAttribute(),
-			"override":   overrideAttribute(),
-			"assets": schema.ListAttribute{
-				MarkdownDescription: "Abstract asset-type paths the policy applies to (e.g., `[\"repository\"]`). Required by the server validator unless `override.asset.types` is set — when only override is supplied, the provider auto-derives this list from it.",
-				Optional:            true,
-				ElementType:         types.StringType,
-			},
 		},
 	}
 }
@@ -313,25 +301,25 @@ func (r *policyResource) deployPolicy(ctx context.Context, plan policyModel) (*t
 }
 
 // buildEntity translates the HCL model into a wire-side policy entity.
-// Constructed directly because no fianu.NewPolicyBuilder exists yet — once
-// it does, this is the natural place to switch over.
 //
 // Policy is a StandardEntity[PolicyDetail] just like Control, so the envelope
 // (UUID/Path/Name/Type/Version) is shared with the rest of the entity
-// ecosystem. The Detail fields (Type, Control, Variations, Override) live
-// inline alongside the envelope on the wire — see entities.Policy's
-// custom UnmarshalJSON for how the "type" key resolves to both EntityType
-// and PolicyType.
+// ecosystem. The Detail fields (Type, Control, Variations) live inline
+// alongside the envelope on the wire — see entities.Policy's custom
+// UnmarshalJSON for how the "type" key resolves to both EntityType and
+// PolicyType.
+//
+// Scope: post-2026-06 the wire shape carries asset binding per criteria
+// (criteria.asset.type / criteria.indexes). The legacy top-level
+// detail.assets[] and detail.override blocks were removed; the server
+// synthesizes Detail.Assets on read from the union of per-criteria asset
+// types for legacy display consumers.
 func buildEntity(plan policyModel) (*fianu_entities.Policy, error) {
 	p := &fianu_entities.Policy{}
 	p.Path = plan.Path.ValueString()
 	p.Name = plan.Name.ValueString()
 	p.StandardEntity.Type = db_vars.EntityTypePolicy
 
-	// Detail lives on StandardEntity[PolicyDetail].Detail (marshalled under
-	// the JSON "detail" key). Policy ALSO directly embeds PolicyDetail at
-	// the top level for legacy compat, but the nested-under-"detail" path
-	// is what survives marshal/unmarshal cleanly.
 	p.Detail.Type = fianu_entities.PolicyType(plan.Detail.Type.ValueString())
 	p.Detail.Control = fianu_entities.PolicyControlRef{
 		Path: plan.Detail.Control.Path.ValueString(),
@@ -341,26 +329,6 @@ func buildEntity(plan policyModel) (*fianu_entities.Policy, error) {
 		p.Detail.Control.EntityID = &s
 	}
 	p.Detail.Variations = buildVariations(plan.Detail.Variations)
-
-	if plan.Detail.Override != nil {
-		p.Detail.Override = plan.Detail.Override.toEntity()
-	}
-
-	// Detail.Assets is required by PolicyIsValid (entities/policy.go:967).
-	// Prefer the explicit `assets` HCL field; fall back to mirroring
-	// override.asset.types when only that's set.
-	assets := plan.Detail.Assets
-	if len(assets) == 0 && plan.Detail.Override != nil {
-		assets = plan.Detail.Override.Asset.Types
-	}
-	for _, typePath := range assets {
-		if typePath.IsNull() || typePath.IsUnknown() || typePath.ValueString() == "" {
-			continue
-		}
-		p.Detail.Assets = append(p.Detail.Assets, fianu_entities.PolicyAssetRef{
-			Path: typePath.ValueString(),
-		})
-	}
 
 	return p, nil
 }

@@ -1,6 +1,6 @@
 # Simple policy: one variation that applies the control to every repository
-# in scope. No criteria — the variation matches all assets of the target
-# types. Good starting point for "I want this control enforced everywhere."
+# in scope. No expressions — the unscoped variation links to the default
+# index for its asset type, matching all assets of that type.
 
 resource "fianu_policy" "iac_scan_baseline" {
   path = "f.policy.security.iac.baseline"
@@ -15,6 +15,9 @@ resource "fianu_policy" "iac_scan_baseline" {
 
     variations = [
       {
+        criteria = {
+          asset = { type = "repository" }
+        }
         policy = jsonencode({
           required = true
           vulnerabilities = {
@@ -24,11 +27,5 @@ resource "fianu_policy" "iac_scan_baseline" {
         })
       },
     ]
-
-    override = {
-      asset = {
-        types = ["repository"]
-      }
-    }
   }
 }

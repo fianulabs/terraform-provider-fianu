@@ -1,14 +1,16 @@
-# Advanced policy: per-variation CEL criteria. Three tiers split the asset
-# population by repo metadata. CEL syntax matches the form the Fianu Console
-# accepts in the UI — the server parses each `expression` string through
-# external/pkg/cel.ParseExpression on deploy.
+# Advanced policy: per-variation CEL criteria with per-criteria asset
+# binding. Three tiers split the asset population by repo metadata. CEL
+# syntax matches the form the Fianu Console accepts in the UI — the
+# server parses each `expression` string through external/pkg/cel.ParseExpression
+# on deploy.
 #
 # Variations evaluate top-down; the first matching variation wins.
 #
-# Note on the expressions list: you usually only need one entry — combine
-# clauses inside a single CEL string with `&&` / `||`. Multiple list entries
-# only matter when you want to mix `combine_with = "OR"` semantics across
-# fundamentally different predicates.
+# Each criteria with `expressions` carries its own `asset` binding — the
+# server spawns one private content-addressed index per criteria.
+# Compose clauses inside a single CEL string with `&&` / `||`; multiple
+# list entries only matter when mixing `combine_with = "OR"` semantics
+# across fundamentally different predicates.
 
 resource "fianu_policy" "iac_scan_tiered" {
   path = "f.policy.security.iac.tiered"
@@ -27,6 +29,7 @@ resource "fianu_policy" "iac_scan_tiered" {
       # (those have their own policy elsewhere).
       {
         criteria = {
+          asset = { type = "repository" }
           expressions = [
             { expression = "asset.labels exists tier && asset.labels.tier == 'prod' && asset.properties.owner == 'team-payments' && asset.scm.repository not matches '(?i).*(ios|android|appco).*'" },
           ]
@@ -46,6 +49,7 @@ resource "fianu_policy" "iac_scan_tiered" {
       # with an OR over the two staging-flavour prefixes.
       {
         criteria = {
+          asset = { type = "repository" }
           expressions = [
             { expression = "asset.scm.repository matches '^my-org/payments-.+' && (asset.identifier startsWith 'preview-' || asset.identifier startsWith 'staging-')" },
           ]
@@ -60,9 +64,13 @@ resource "fianu_policy" "iac_scan_tiered" {
         })
       },
 
-      # Tier 3 — catch-all for everything else. No criteria block means the
-      # variation matches every asset that fell through the previous tiers.
+      # Tier 3 — catch-all for everything else. No expressions means the
+      # variation matches every asset of the bound type (links the default
+      # index for that type).
       {
+        criteria = {
+          asset = { type = "repository" }
+        }
         policy = jsonencode({
           required = true
           vulnerabilities = {
@@ -73,11 +81,5 @@ resource "fianu_policy" "iac_scan_tiered" {
         })
       },
     ]
-
-    override = {
-      asset = {
-        types = ["repository"]
-      }
-    }
   }
 }

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-08
+
 ### Changed (breaking)
 - `fianu_gate.detail.policy.variations[]` no longer accepts the free-form
   `policy` JSON map that mirrored `fianu_policy`. A gate's policy template
@@ -43,6 +45,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `"control"` → `400 "failed to resolve control"`).
 
 ### Added
+- `fianu_index` resource for managing Fianu Index entities. An index is a
+  reusable asset-scope definition (an `asset_type` + one or more CEL
+  `expressions` with `combine_with` and `kind` strategy) that policies and
+  gates reference instead of restating the CEL inline. Uses the dedicated
+  REST shape (`POST/PATCH/GET/DELETE /api/entities/indexes`) rather than
+  the generic `deploy_entity_file` multipart route — `CreateIndex`,
+  `UpdateIndex`, `GetIndex`, `ArchiveIndex` on `external/pkg/sdk/v2`.
+  Read hydration covers the envelope plus `asset_type` (the latter
+  because it's `RequiresReplace`, so leaving it null post-import would
+  force a destroy+create as soon as the user authored matching HCL).
+  Other Detail fields stay user-authored to avoid drift against
+  server-side canonicalisation. The wrapper's `IndexWithComputeState`
+  (member count, recompute timestamps) is not surfaced since it changes
+  independently of user intent.
+- `fianu_gate` criteria + protected-scope (`pods[].matching`) now accept
+  the same three input shapes as `fianu_policy.detail.variations[].criteria`:
+  `asset` (per-criteria asset type binding), `expressions` (inline CEL —
+  demoted from required to optional), and `indexes` (references to existing
+  index entities by `id` or `path`). Mirrors the canonical
+  `PolicyAssetGroup` write shape on gates so reusable index entities can
+  scope gate variations and pod matching scopes alongside policies.
 - `fianu_policy.detail.assets` and `fianu_gate.detail.policy.assets`: list
   of abstract asset-type paths (e.g., `["repository"]`). Required by the
   server's `PolicyIsValid` which 400s with
@@ -90,5 +113,6 @@ Initial public release.
 - Three vendored production controls under `examples/resources/fianu_control/`
   (`sast_checkmarx`, `unit_tests_pytest`, `container_scan_wiz`).
 
-[Unreleased]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.1.31...v0.2.0
 [0.1.0]: https://github.com/fianulabs/terraform-provider-fianu/releases/tag/v0.1.0

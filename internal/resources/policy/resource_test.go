@@ -99,6 +99,9 @@ resource "fianu_policy" "example" {
       {
         effect   = "apply"
         priority = 0
+        criteria = {
+          asset = { type = "repository" }
+        }
         policy   = jsonencode({ required = true })
       },
     ]
@@ -106,8 +109,10 @@ resource "fianu_policy" "example" {
 }
 `
 
-// TestAccFianuPolicy_FullSpec adds the override block and a multi-variation
-// list to exercise the full HCL surface.
+// TestAccFianuPolicy_FullSpec exercises the full HCL surface: multiple
+// variations with per-criteria asset bindings. Confirms each variation
+// carries its own scope and that asset binding flows through to the
+// wire shape via criteria.asset.type.
 func TestAccFianuPolicy_FullSpec(t *testing.T) {
 	stub := newPolicyStub(t)
 	defer stub.server.Close()
@@ -139,11 +144,16 @@ func TestAccFianuPolicy_FullSpec(t *testing.T) {
 	if string(captured.Detail.Variations[1].PolicyEffect) != "exempt" {
 		t.Errorf("second variation effect = %q, want exempt", captured.Detail.Variations[1].PolicyEffect)
 	}
-	if captured.Detail.Override == nil {
-		t.Fatal("override block should be set")
-	}
-	if got := captured.Detail.Override.Asset.Types; len(got) != 1 || got[0] != "repository" {
-		t.Errorf("override.asset.types = %v, want [repository]", got)
+	// Asset binding moved from top-level detail.override to per-criteria
+	// criteria.asset.type. Each variation now carries its own scope.
+	for i, v := range captured.Detail.Variations {
+		if v.Criteria == nil {
+			t.Errorf("variation[%d] missing criteria", i)
+			continue
+		}
+		if v.Criteria.Asset == nil || string(v.Criteria.Asset.Type) != "repository" {
+			t.Errorf("variation[%d] criteria.asset.type = %v, want repository", i, v.Criteria.Asset)
+		}
 	}
 }
 
@@ -171,6 +181,7 @@ resource "fianu_policy" "criteria" {
     variations = [
       {
         criteria = {
+          asset = { type = "repository" }
           expressions = [
             { expression = "asset.scm.repository startsWith 'prod-'" },
           ]
@@ -217,6 +228,71 @@ resource "fianu_policy" "criteria" {
 	}
 }
 
+// TestAccFianuPolicy_CriteriaReferencesIndex covers the canonical
+// "criteria.indexes" form — a policy that references an existing index by
+// path instead of inlining CEL. The wire payload must carry an IndexReference
+// with IndexPath set (and IndexID empty); the Asset binding must NOT be
+// populated since the linked index already carries the asset type.
+func TestAccFianuPolicy_CriteriaReferencesIndex(t *testing.T) {
+	stub := newPolicyStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	cfg := `
+provider "fianu" {}
+resource "fianu_policy" "indexed" {
+  path = "test.policy.indexed"
+  name = "Indexed Policy"
+  detail = {
+    type = "standard"
+    control = { path = "test.control.basic" }
+    variations = [
+      {
+        criteria = {
+          indexes = [
+            { path = "compliance.indexes.prod_repos" },
+          ]
+        }
+        policy = jsonencode({ required = true })
+      },
+    ]
+  }
+}
+`
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps:                    []resource.TestStep{{Config: cfg}},
+	})
+
+	captured, _ := stub.capturedEntity.Load().(*fianu_entities.Policy)
+	if captured == nil {
+		t.Fatal("no entity captured")
+	}
+	crit := captured.Detail.Variations[0].Criteria
+	if crit == nil {
+		t.Fatal("variation criteria is nil")
+	}
+	if len(crit.Indexes) != 1 {
+		t.Fatalf("expected 1 index ref, got %d", len(crit.Indexes))
+	}
+	if got := crit.Indexes[0].IndexPath; got != "compliance.indexes.prod_repos" {
+		t.Errorf("criteria.indexes[0].path = %q, want %q", got, "compliance.indexes.prod_repos")
+	}
+	if got := crit.Indexes[0].IndexID; got != "" {
+		t.Errorf("criteria.indexes[0].id should be empty when path is set, got %q", got)
+	}
+	// The "indexes only" shape must NOT populate Asset — server-side
+	// PolicyAssetGroup.IsValid rejects expressions+indexes but accepts
+	// asset+indexes (informational). Provider should leave Asset nil when
+	// the user only supplied indexes.
+	if crit.Asset != nil && crit.Asset.Type != "" {
+		t.Errorf("criteria.asset.type should be empty for indexes-only shape, got %q", crit.Asset.Type)
+	}
+}
+
 const testAccConfigFullSpecPolicy = `
 provider "fianu" {}
 
@@ -233,20 +309,21 @@ resource "fianu_policy" "full" {
       {
         effect   = "apply"
         priority = 0
+        criteria = {
+          asset = { type = "repository" }
+        }
         policy   = jsonencode({ required = true, vulnerabilities = { critical = { maximum = 0 } } })
       },
       {
         effect   = "exempt"
         priority = 100
         locked   = true
+        criteria = {
+          asset = { type = "repository" }
+        }
         policy   = jsonencode({})
       },
     ]
-    override = {
-      asset = {
-        types = ["repository"]
-      }
-    }
   }
 }
 `

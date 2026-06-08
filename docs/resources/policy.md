@@ -26,6 +26,9 @@ resource "fianu_policy" "iac_scan_strict" {
 
     variations = [
       {
+        criteria = {
+          asset = { type = "repository" }
+        }
         policy = jsonencode({
           required = true
           vulnerabilities = {
@@ -37,12 +40,6 @@ resource "fianu_policy" "iac_scan_strict" {
         })
       },
     ]
-
-    override = {
-      asset = {
-        types = ["repository"]
-      }
-    }
   }
 }
 ```
@@ -77,11 +74,6 @@ Required:
 - `type` (String) Policy type. One of `standard`, `exception`, `target`.
 - `variations` (Attributes List) Policy variations. Each variation pairs an effect (apply or exempt) with metric overrides for the target control. Server evaluates variations in priority order; the first matching variation wins. (see [below for nested schema](#nestedatt--detail--variations))
 
-Optional:
-
-- `assets` (List of String) Abstract asset-type paths the policy applies to (e.g., `["repository"]`). Required by the server validator unless `override.asset.types` is set — when only override is supplied, the provider auto-derives this list from it.
-- `override` (Attributes) Asset scope override. When set, narrows or expands the asset set the policy applies to beyond the target control's declared scope. (see [below for nested schema](#nestedatt--detail--override))
-
 <a id="nestedatt--detail--control"></a>
 ### Nested Schema for `detail.control`
 
@@ -103,7 +95,7 @@ Required:
 
 Optional:
 
-- `criteria` (Attributes) Asset group criteria. Restricts this variation to assets matching a set of CEL expressions. When omitted, the variation applies to every asset in the policy's scope. (see [below for nested schema](#nestedatt--detail--variations--criteria))
+- `criteria` (Attributes) Asset group criteria. Restricts this variation to assets matching either a set of CEL expressions or one or more existing indexes. When omitted, the variation applies to every asset in the policy's scope. (see [below for nested schema](#nestedatt--detail--variations--criteria))
 - `effect` (String) What this variation does. `apply` runs the control with the supplied metric overrides; `exempt` skips evaluation entirely for matching assets. Defaults to `apply` when omitted (server-side default).
 - `locked` (Boolean) When true, prevents downstream tenants from overriding this variation. Defaults to false.
 - `priority` (Number) Evaluation priority. Lower numbers run first. Defaults to 0 when omitted.
@@ -111,15 +103,22 @@ Optional:
 <a id="nestedatt--detail--variations--criteria"></a>
 ### Nested Schema for `detail.variations.criteria`
 
-Required:
-
-- `expressions` (Attributes List) CEL expressions evaluated per-asset. Uses Fianu's CEL dialect — combine clauses inside a single expression with `&&`/`||`; multiple list entries are only needed when mixing OR semantics across separate predicates via `combine_with`. (see [below for nested schema](#nestedatt--detail--variations--criteria--expressions))
-
 Optional:
 
+- `asset` (Attributes) Per-criteria asset binding. Required when `expressions` are supplied OR when the criteria is unscoped (no expressions and no indexes). Omit when `indexes` is set — the linked index already carries the asset type. (see [below for nested schema](#nestedatt--detail--variations--criteria--asset))
 - `combine_with` (String) How the expressions combine. `AND` (all must match) or `OR` (any may match). Defaults to `AND`.
 - `description` (String) Optional description of the criteria.
+- `expressions` (Attributes List) CEL expressions evaluated per-asset. Uses Fianu's CEL dialect — combine clauses inside a single expression with `&&`/`||`; multiple list entries are only needed when mixing OR semantics across separate predicates via `combine_with`. Mutually exclusive with `indexes`. (see [below for nested schema](#nestedatt--detail--variations--criteria--expressions))
+- `indexes` (Attributes List) References to existing indexes (by id or path). Mutually exclusive with `expressions` and `asset` — the linked index already carries asset type and CEL. (see [below for nested schema](#nestedatt--detail--variations--criteria--indexes))
 - `name` (String) Optional human-readable name for the asset group.
+
+<a id="nestedatt--detail--variations--criteria--asset"></a>
+### Nested Schema for `detail.variations.criteria.asset`
+
+Required:
+
+- `type` (String) Abstract asset type (e.g., `repository`, `application`, `module`). Built-ins are listed in the Console; orgs can register additional abstract asset types.
+
 
 <a id="nestedatt--detail--variations--criteria--expressions"></a>
 ### Nested Schema for `detail.variations.criteria.expressions`
@@ -129,22 +128,14 @@ Required:
 - `expression` (String) CEL expression evaluated against the asset (e.g., `asset.name startsWith 'prod-'`).
 
 
-
-
-<a id="nestedatt--detail--override"></a>
-### Nested Schema for `detail.override`
-
-Required:
-
-- `asset` (Attributes) (see [below for nested schema](#nestedatt--detail--override--asset))
-
-<a id="nestedatt--detail--override--asset"></a>
-### Nested Schema for `detail.override.asset`
+<a id="nestedatt--detail--variations--criteria--indexes"></a>
+### Nested Schema for `detail.variations.criteria.indexes`
 
 Optional:
 
-- `explicit` (List of String) Explicit asset entity keys or UUIDs to target. Optional; coexists with `types` — assets matching either are in scope.
-- `types` (List of String) Abstract asset types to target (e.g., `["repository", "module"]`). Optional; defaults to whatever the target control declares.
+- `id` (String) UUID of an existing index. Mutually exclusive with `path` within a single entry.
+- `path` (String) Entity path of an existing index (e.g., from `fianu_index.foo.path`). Mutually exclusive with `id` within a single entry.
+
 
 
 

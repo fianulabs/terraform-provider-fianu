@@ -122,20 +122,27 @@ Optional:
 - `completion_action` (String) Optional post-evaluation action identifier (server-specific).
 - `description` (String) Free-form description.
 - `enabled` (Boolean) Whether this pod participates in gating. Defaults to true.
-- `matching` (Attributes List) Scoped overrides: each entry binds a CEL expression group to its own protection level. Most-restrictive wins (`enforce` > `check` > inherit). When omitted the pod's top-level `protection_level` applies to all gated traffic. (see [below for nested schema](#nestedatt--detail--pods--matching))
+- `matching` (Attributes List) Scoped overrides: each entry binds an asset group (CEL expressions, index references, or an unscoped asset type) to its own protection level. Most-restrictive wins (`enforce` > `check` > inherit). When omitted the pod's top-level `protection_level` applies to all gated traffic. (see [below for nested schema](#nestedatt--detail--pods--matching))
 - `name` (String) Human-readable name for the pod.
 - `protection_level` (String) Default protection level when no `matching` scope applies. `enforce` blocks deployments on gate failure; `check` runs the gate but always approves. Defaults to `enforce`.
 
 <a id="nestedatt--detail--pods--matching"></a>
 ### Nested Schema for `detail.pods.matching`
 
-Required:
-
-- `expressions` (Attributes List) CEL expressions defining the scope. Combine clauses with `&&`/`||` inside a single expression; multiple entries are AND'd together. (see [below for nested schema](#nestedatt--detail--pods--matching--expressions))
-
 Optional:
 
+- `asset` (Attributes) Per-scope asset binding. Required when `expressions` are supplied OR when the scope is unscoped (no expressions and no indexes). Omit when `indexes` is set — the linked index already carries the asset type. (see [below for nested schema](#nestedatt--detail--pods--matching--asset))
+- `expressions` (Attributes List) CEL expressions defining the scope. Combine clauses with `&&`/`||` inside a single expression; multiple entries are AND'd together. Mutually exclusive with `indexes`. (see [below for nested schema](#nestedatt--detail--pods--matching--expressions))
+- `indexes` (Attributes List) References to existing indexes (by id or path). Mutually exclusive with `expressions` and `asset` — the linked index already carries asset type and CEL. (see [below for nested schema](#nestedatt--detail--pods--matching--indexes))
 - `protection_level` (String) Protection level for this scope. `enforce` or `check`. Omit to inherit the pod's top-level level.
+
+<a id="nestedatt--detail--pods--matching--asset"></a>
+### Nested Schema for `detail.pods.matching.asset`
+
+Required:
+
+- `type` (String) Abstract asset type (e.g., `repository`, `application`, `module`). Built-ins are listed in the Console; orgs can register additional abstract asset types.
+
 
 <a id="nestedatt--detail--pods--matching--expressions"></a>
 ### Nested Schema for `detail.pods.matching.expressions`
@@ -143,6 +150,15 @@ Optional:
 Required:
 
 - `expression` (String) CEL expression evaluated against the gated event (e.g., `asset.scm.repository startsWith 'prod-'`).
+
+
+<a id="nestedatt--detail--pods--matching--indexes"></a>
+### Nested Schema for `detail.pods.matching.indexes`
+
+Optional:
+
+- `id` (String) UUID of an existing index. Mutually exclusive with `path` within a single entry.
+- `path` (String) Entity path of an existing index (e.g., from `fianu_index.foo.path`). Mutually exclusive with `id` within a single entry.
 
 
 
@@ -167,7 +183,7 @@ Optional:
 
 Optional:
 
-- `criteria` (Attributes) Asset group criteria. Restricts this variation to assets matching a set of CEL expressions. When omitted, the variation applies to every asset in the policy's scope. (see [below for nested schema](#nestedatt--detail--policy--variations--criteria))
+- `criteria` (Attributes) Asset group criteria. Restricts this variation to assets matching either a set of CEL expressions or one or more existing indexes. When omitted, the variation applies to every asset in the gate's scope. (see [below for nested schema](#nestedatt--detail--policy--variations--criteria))
 - `effect` (String) What this variation does. `apply` enforces the required_controls/required_gates; `exempt` skips the gate entirely for matching assets. Defaults to `apply` when omitted.
 - `locked` (Boolean) When true, prevents downstream tenants from overriding this variation. Defaults to false.
 - `priority` (Number) Evaluation priority. Lower numbers run first. Defaults to 0.
@@ -177,15 +193,22 @@ Optional:
 <a id="nestedatt--detail--policy--variations--criteria"></a>
 ### Nested Schema for `detail.policy.variations.criteria`
 
-Required:
-
-- `expressions` (Attributes List) CEL expressions evaluated per-asset. Uses Fianu's CEL dialect — combine clauses inside a single expression with `&&`/`||`; multiple list entries are only needed when mixing OR semantics across separate predicates via `combine_with`. (see [below for nested schema](#nestedatt--detail--policy--variations--criteria--expressions))
-
 Optional:
 
+- `asset` (Attributes) Per-criteria asset binding. Required when `expressions` are supplied OR when the criteria is unscoped (no expressions and no indexes). Omit when `indexes` is set — the linked index already carries the asset type. (see [below for nested schema](#nestedatt--detail--policy--variations--criteria--asset))
 - `combine_with` (String) How the expressions combine. `AND` (all must match) or `OR` (any may match). Defaults to `AND`.
 - `description` (String) Optional description of the criteria.
+- `expressions` (Attributes List) CEL expressions evaluated per-asset. Uses Fianu's CEL dialect — combine clauses inside a single expression with `&&`/`||`; multiple list entries are only needed when mixing OR semantics across separate predicates via `combine_with`. Mutually exclusive with `indexes`. (see [below for nested schema](#nestedatt--detail--policy--variations--criteria--expressions))
+- `indexes` (Attributes List) References to existing indexes (by id or path). Mutually exclusive with `expressions` and `asset` — the linked index already carries asset type and CEL. (see [below for nested schema](#nestedatt--detail--policy--variations--criteria--indexes))
 - `name` (String) Optional human-readable name for the asset group.
+
+<a id="nestedatt--detail--policy--variations--criteria--asset"></a>
+### Nested Schema for `detail.policy.variations.criteria.asset`
+
+Required:
+
+- `type` (String) Abstract asset type (e.g., `repository`, `application`, `module`). Built-ins are listed in the Console; orgs can register additional abstract asset types.
+
 
 <a id="nestedatt--detail--policy--variations--criteria--expressions"></a>
 ### Nested Schema for `detail.policy.variations.criteria.expressions`
@@ -193,6 +216,15 @@ Optional:
 Required:
 
 - `expression` (String) CEL expression evaluated against the asset (e.g., `asset.name startsWith 'prod-'`).
+
+
+<a id="nestedatt--detail--policy--variations--criteria--indexes"></a>
+### Nested Schema for `detail.policy.variations.criteria.indexes`
+
+Optional:
+
+- `id` (String) UUID of an existing index. Mutually exclusive with `path` within a single entry.
+- `path` (String) Entity path of an existing index (e.g., from `fianu_index.foo.path`). Mutually exclusive with `id` within a single entry.
 
 
 

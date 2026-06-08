@@ -6,8 +6,8 @@
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-blue.svg)](./LICENSE)
 [![CI](https://github.com/fianulabs/terraform-provider-fianu/actions/workflows/ci.yaml/badge.svg)](https://github.com/fianulabs/terraform-provider-fianu/actions/workflows/ci.yaml)
 
-Manage Fianu compliance entities (controls, gates, policies, environments,
-targets, collections) declaratively from Terraform.
+Manage Fianu compliance entities (controls, gates, policies, indexes,
+environments, targets, collections) declaratively from Terraform.
 
 > **Status:** v0.1 — early development. Schema and resource shapes will change
 > before v1.0. See [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
@@ -18,6 +18,7 @@ targets, collections) declaratively from Terraform.
 | ----------------- | ------------- |
 | `fianu_control`   | ✅ Available  |
 | `fianu_gate`      | ✅ Available  |
+| `fianu_index`     | ✅ Available  |
 | `fianu_policy`    | ✅ Available  |
 | `fianu_environment` | ⏳ v0.1.x   |
 | `fianu_target`    | ⏳ v0.1.x     |

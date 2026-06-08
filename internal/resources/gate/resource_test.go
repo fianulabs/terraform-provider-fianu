@@ -283,6 +283,133 @@ resource "fianu_gate" "security" {
 }
 `
 
+// TestAccFianuGate_CriteriaReferencesIndex verifies that gates can plumb the
+// canonical "criteria.indexes" reference shape through to the wire — both on
+// the inline policy's variation.criteria AND on pods[].matching scopes.
+// Without the symmetric expansion (asset + indexes alongside expressions),
+// gates would force users to inline CEL even when a reusable fianu_index
+// already exists.
+func TestAccFianuGate_CriteriaReferencesIndex(t *testing.T) {
+	stub := newGateStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{Config: testAccConfigGateCriteriaIndexes},
+			{
+				Config: testAccConfigGateCriteriaIndexes,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+		},
+	})
+
+	policy, _ := stub.capturedPolicy.Load().(*fianu_entities.Policy)
+	if policy == nil {
+		t.Fatal("expected policy captured")
+	}
+	if len(policy.Detail.Variations) != 1 {
+		t.Fatalf("expected 1 variation, got %d", len(policy.Detail.Variations))
+	}
+	crit := policy.Detail.Variations[0].Criteria
+	if crit == nil {
+		t.Fatal("variation.criteria is nil")
+	}
+	if len(crit.Indexes) != 1 {
+		t.Fatalf("expected 1 index ref on variation.criteria, got %d", len(crit.Indexes))
+	}
+	if got := crit.Indexes[0].IndexPath; got != "compliance.indexes.prod_repos" {
+		t.Errorf("criteria.indexes[0].path = %q, want %q", got, "compliance.indexes.prod_repos")
+	}
+	if got := crit.Indexes[0].IndexID; got != "" {
+		t.Errorf("criteria.indexes[0].id should be empty (path-form), got %q", got)
+	}
+
+	// Pods[].matching also propagates indexes via the embedded
+	// PolicyAssetGroup. Pod wire shape is `{key, podType, value: <JSON>}`
+	// where the value carries the GateCheckRuleValue (protectionLevel +
+	// matching scopes). Drill into the value to confirm the index ref
+	// landed on the wire.
+	body, ok := stub.podsEverSeen.Load("scoped-by-index")
+	if !ok {
+		t.Fatal("expected pod 'scoped-by-index' to have been deployed")
+	}
+	pod, ok := body.(map[string]any)
+	if !ok {
+		t.Fatalf("pod body unexpected shape: %T", body)
+	}
+	podValue, ok := pod["value"].(map[string]any)
+	if !ok {
+		t.Fatalf("pod.value unexpected shape: %T (pod=%+v)", pod["value"], pod)
+	}
+	matching, ok := podValue["matching"].([]any)
+	if !ok || len(matching) == 0 {
+		t.Fatalf("pod 'scoped-by-index' has no matching scopes: %+v", podValue)
+	}
+	scope := matching[0].(map[string]any)
+	idxs, ok := scope["indexes"].([]any)
+	if !ok || len(idxs) != 1 {
+		t.Fatalf("pod matching scope missing indexes ref: %+v", scope)
+	}
+	idx := idxs[0].(map[string]any)
+	if idx["path"] != "compliance.indexes.staging_repos" {
+		t.Errorf("pod matching scope indexes[0].path = %v, want compliance.indexes.staging_repos", idx["path"])
+	}
+}
+
+const testAccConfigGateCriteriaIndexes = `
+provider "fianu" {}
+
+resource "fianu_gate" "security" {
+  path = "test.gate.security.indexed"
+  name = "Security Gate (Indexed)"
+
+  detail = {
+    full_name   = "Production Security Gate"
+    display_key = "PSEC2"
+
+    policy = {
+      variations = [
+        {
+          criteria = {
+            indexes = [
+              { path = "compliance.indexes.prod_repos" },
+            ]
+          }
+          required_controls = ["a868c707-850a-474a-8e66-77a240de4305"]
+        },
+      ]
+      override = {
+        asset = {
+          types = ["repository"]
+        }
+      }
+    }
+
+    pods = [
+      {
+        key              = "scoped-by-index"
+        protection_level = "enforce"
+        matching = [
+          {
+            protection_level = "check"
+            indexes = [
+              { path = "compliance.indexes.staging_repos" },
+            ]
+          },
+        ]
+      },
+    ]
+  }
+}
+`
+
 func protoV6Factories() map[string]func() (tfprotov6.ProviderServer, error) {
 	return map[string]func() (tfprotov6.ProviderServer, error){
 		"fianu": providerserver.NewProtocol6WithError(provider.New("test")()),
@@ -305,7 +432,7 @@ type gateStub struct {
 	capturedGate   atomic.Value // *fianu_entities.Control
 	capturedPolicy atomic.Value // *fianu_entities.Policy
 	capturedPods   sync.Map     // key (string) -> pod body (map[string]any). Drained when DELETE arrives.
-	podsEverSeen   sync.Map     // key (string) -> struct{}. Add-only; never cleared on DELETE.
+	podsEverSeen   sync.Map     // key (string) -> last-seen pod body (map[string]any). Add-only; never cleared on DELETE. Existing tests use `ok` only; richer tests can inspect the captured shape after the resource.Test destroy step drains capturedPods.
 }
 
 func newGateStub(t *testing.T) *gateStub {
@@ -447,7 +574,7 @@ func newGateStub(t *testing.T) *gateStub {
 			var pod map[string]any
 			_ = json.Unmarshal(body, &pod)
 			stub.capturedPods.Store(key, pod)
-			stub.podsEverSeen.Store(key, struct{}{})
+			stub.podsEverSeen.Store(key, pod)
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write(body)
 		case http.MethodDelete:

@@ -11,6 +11,9 @@ resource "fianu_policy" "iac_scan_strict" {
 
     variations = [
       {
+        criteria = {
+          asset = { type = "repository" }
+        }
         policy = jsonencode({
           required = true
           vulnerabilities = {
@@ -22,11 +25,5 @@ resource "fianu_policy" "iac_scan_strict" {
         })
       },
     ]
-
-    override = {
-      asset = {
-        types = ["repository"]
-      }
-    }
   }
 }

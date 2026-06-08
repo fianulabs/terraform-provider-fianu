@@ -1,5 +1,6 @@
 {
-  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "name": "Test Go Deps",
+  "image": "mcr.microsoft.com/devcontainers/go:1.26",
   "features": {},
   "customizations": {
     "codespaces": {

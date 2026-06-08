@@ -14,7 +14,6 @@ import (
 	sdk "github.com/fianulabs/core/v2/external/pkg/sdk/v2"
 	"github.com/hashicorp/terraform-plugin-framework/action"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
-	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -36,6 +35,12 @@ const (
 	envClientSecret = "FIANU_CLIENT_SECRET"
 	envTokenURL     = "FIANU_TOKEN_URL"
 	envToken        = "FIANU_TOKEN"
+
+	// defaultHost is the production Fianu console base URL. Applied when
+	// neither `host` nor FIANU_HOST is set so customers only have to
+	// supply `client_id` + `client_secret` against the public console;
+	// override only if running against a private console deployment.
+	defaultHost = "https://app.fianu.io"
 
 	// defaultTokenURL is the production Fianu OIDC token endpoint (Auth0
 	// custom domain). Applied when neither `token_url` nor FIANU_TOKEN_URL
@@ -84,7 +89,7 @@ func (p *fianuProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp
 		MarkdownDescription: "The Fianu provider manages compliance entities (controls, policies, environments, targets, collections) on a Fianu Console deployment.",
 		Attributes: map[string]schema.Attribute{
 			"host": schema.StringAttribute{
-				MarkdownDescription: "Base URL of the Fianu Console (e.g., `https://console.fianu.io`). Falls back to `FIANU_HOST`.",
+				MarkdownDescription: "Base URL of the Fianu Console (e.g., `https://app.fianu.io`). Falls back to `FIANU_HOST`, then to `https://app.fianu.io` (the public Fianu Console). Override only when running against a private deployment.",
 				Optional:            true,
 			},
 			"client_id": schema.StringAttribute{
@@ -118,12 +123,7 @@ func (p *fianuProvider) Configure(ctx context.Context, req provider.ConfigureReq
 
 	host := stringOrEnv(cfg.Host, envHost)
 	if host == "" {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("host"),
-			"missing host",
-			"The Fianu provider requires a host URL. Set the `host` attribute or the FIANU_HOST environment variable.",
-		)
-		return
+		host = defaultHost
 	}
 
 	opts := []sdk.Opt{sdk.WithBaseURL(host)}

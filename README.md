@@ -34,7 +34,7 @@ long-lived token.
 
 ```hcl
 provider "fianu" {
-  host          = "https://console.fianu.io"
+  host          = "https://app.fianu.io"
   client_id     = var.fianu_client_id
   client_secret = var.fianu_client_secret
   token_url     = "https://auth.fianu.io/oauth/token"
@@ -50,7 +50,7 @@ Token caching and refresh are handled by `golang.org/x/oauth2/clientcredentials`
 
 ```hcl
 provider "fianu" {
-  host  = "https://console.fianu.io"
+  host  = "https://app.fianu.io"
   token = var.fianu_token
 }
 ```

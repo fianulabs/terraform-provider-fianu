@@ -35,6 +35,7 @@ const (
 	envClientID     = "FIANU_CLIENT_ID"
 	envClientSecret = "FIANU_CLIENT_SECRET"
 	envTokenURL     = "FIANU_TOKEN_URL"
+	envAudience     = "FIANU_AUDIENCE"
 	envToken        = "FIANU_TOKEN"
 
 	// defaultTokenURL is the production Fianu OIDC token endpoint (Auth0
@@ -43,6 +44,17 @@ const (
 	// against the public console; override only if running against a
 	// non-standard IDP or a private console deployment.
 	defaultTokenURL = "https://cloudauth.fianu.io/oauth/token"
+
+	// defaultAudience is the Auth0 Management API audience the Fianu console
+	// accepts. Sent as the `audience` form parameter on the OIDC token
+	// request. Without it, Auth0 returns
+	//   access_denied: No audience parameter was provided, and no default
+	//   audience has been configured
+	// on tenants that don't have a tenant-level Default Audience set
+	// (the typical M2M service-account setup). Override via the
+	// `audience` provider attribute or FIANU_AUDIENCE env var only when
+	// running against a private deployment with a different API audience.
+	defaultAudience = "https://fianu.us.auth0.com/api/v2"
 )
 
 // Compile-time interface checks lock down what the provider must implement.
@@ -71,6 +83,7 @@ type fianuProviderModel struct {
 	ClientID     types.String `tfsdk:"client_id"`
 	ClientSecret types.String `tfsdk:"client_secret"`
 	TokenURL     types.String `tfsdk:"token_url"`
+	Audience     types.String `tfsdk:"audience"`
 	Token        types.String `tfsdk:"token"`
 }
 
@@ -98,6 +111,10 @@ func (p *fianuProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp
 			},
 			"token_url": schema.StringAttribute{
 				MarkdownDescription: "OIDC token endpoint URL. Falls back to `FIANU_TOKEN_URL`, then to `https://cloudauth.fianu.io/oauth/token` (the public Fianu IDP). Override only when running against a private deployment or non-standard IDP.",
+				Optional:            true,
+			},
+			"audience": schema.StringAttribute{
+				MarkdownDescription: "OIDC `audience` parameter sent on the token request. Required by Auth0 M2M clients whose tenant has no Default Audience configured — without it, Auth0 returns `access_denied: No audience parameter was provided…`. Falls back to `FIANU_AUDIENCE`, then to `https://fianu.us.auth0.com/api/v2` (the production Fianu API audience). Override only when running against a private deployment with a different API audience.",
 				Optional:            true,
 			},
 			"token": schema.StringAttribute{
@@ -137,11 +154,18 @@ func (p *fianuProvider) Configure(ctx context.Context, req provider.ConfigureReq
 		if tokenURL == "" {
 			tokenURL = defaultTokenURL
 		}
+		audience := stringOrEnv(cfg.Audience, envAudience)
+		if audience == "" {
+			audience = defaultAudience
+		}
 		if clientID == "" || clientSecret == "" {
 			resp.Diagnostics.AddError("authentication misconfigured", errMissingCredentials{}.Error())
 			return
 		}
-		opts = append(opts, sdk.WithOIDC(clientID, clientSecret, tokenURL))
+		opts = append(opts,
+			sdk.WithOIDC(clientID, clientSecret, tokenURL),
+			sdk.WithOIDCAudience(audience),
+		)
 	}
 
 	client, err := sdk.NewClient(opts...)

@@ -16,6 +16,7 @@ The Fianu provider manages compliance entities (controls, policies, environments
 
 ### Optional
 
+- `audience` (String) OIDC `audience` parameter sent on the token request. Required by Auth0 M2M clients whose tenant has no Default Audience configured — without it, Auth0 returns `access_denied: No audience parameter was provided…`. Falls back to `FIANU_AUDIENCE`, then to `https://fianu.us.auth0.com/api/v2` (the production Fianu API audience). Override only when running against a private deployment with a different API audience.
 - `client_id` (String) OIDC client ID for the client-credentials grant. Falls back to `FIANU_CLIENT_ID`.
 - `client_secret` (String, Sensitive) OIDC client secret. Falls back to `FIANU_CLIENT_SECRET`.
 - `host` (String) Base URL of the Fianu Console (e.g., `https://console.fianu.io`). Falls back to `FIANU_HOST`.

@@ -3,7 +3,7 @@ module github.com/fianulabs/terraform-provider-fianu
 go 1.26.3
 
 require (
-	github.com/fianulabs/core/v2 v2.16.102-0.20260605224537-65f1e3b2da96
+	github.com/fianulabs/core/v2 v2.16.108-0.20260608210122-bd52933f2380
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/terraform-plugin-docs v0.25.0
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
@@ -218,7 +218,7 @@ require (
 	github.com/jellydator/ttlcache/v3 v3.4.0 // indirect
 	github.com/joomcode/errorx v1.2.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.18.4 // indirect
+	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect

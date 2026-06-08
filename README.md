@@ -37,12 +37,20 @@ provider "fianu" {
   host          = "https://console.fianu.io"
   client_id     = var.fianu_client_id
   client_secret = var.fianu_client_secret
-  token_url     = "https://auth.fianu.io/oauth/token"
+  # token_url defaults to https://cloudauth.fianu.io/oauth/token
+  # audience  defaults to https://fianu.us.auth0.com/api/v2
 }
 ```
 
 Falls back to `FIANU_HOST`, `FIANU_CLIENT_ID`, `FIANU_CLIENT_SECRET`,
-`FIANU_TOKEN_URL` env vars when the matching attributes are unset.
+`FIANU_TOKEN_URL`, `FIANU_AUDIENCE` env vars when the matching attributes are
+unset.
+
+The `audience` parameter is required by Auth0 M2M clients whose tenant has no
+Default Audience configured — without it, the token request fails with
+`access_denied: No audience parameter was provided…`. The default matches the
+production Fianu API audience; override only when running against a private
+deployment with a different API audience.
 
 Token caching and refresh are handled by `golang.org/x/oauth2/clientcredentials`.
 

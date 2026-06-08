@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- OIDC client-credentials token requests now include the `audience` form
+  parameter. Without it, Auth0 M2M clients whose tenant has no Default
+  Audience configured failed at provider init with
+  `access_denied: No audience parameter was provided, and no default audience
+  has been configured`. Default is `https://fianu.us.auth0.com/api/v2`
+  (the production Fianu API audience); override via the new `audience`
+  provider attribute or `FIANU_AUDIENCE` env var when running against a
+  private deployment. Plumbed through `sdk.WithOIDCAudience` (new in core
+  `external/pkg/sdk/v2` ≥ v2.16.108).
+
 ## [0.2.0] - 2026-06-08
 
 ### Changed (breaking)

@@ -18,19 +18,19 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Setup Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.26.2'
-        cache: false
-        cache-dependency-path: go.sum
-
     - name: Configure git for private Go modules
       shell: bash
       env:
         GH_ACCESS_TOKEN: ${{ inputs.gh-access-token }}
       run: |
         git config --global url."https://x-access-token:${GH_ACCESS_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26.2'
+        cache: false
+        cache-dependency-path: go.sum
 
     - name: go mod download
       shell: bash

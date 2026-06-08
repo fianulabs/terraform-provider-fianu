@@ -18,6 +18,7 @@
       }
     }
   },
+  "postStartCommand": "git config --global url.\"https://x-access-token:${GITHUB_TOKEN}@github.com/\".insteadOf \"https://github.com/\"",
   "remoteEnv": {
     "GOPRIVATE": "github.com/fianulabs"
   }

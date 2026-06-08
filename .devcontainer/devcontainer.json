@@ -9,6 +9,11 @@
           "permissions": {
             "contents": "read"
           }
+        },
+        "fianulabs/fior": {
+          "permissions": {
+            "contents": "read"
+          }
         }
       }
     }

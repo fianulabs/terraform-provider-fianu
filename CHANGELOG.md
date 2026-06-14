@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-06-08
+
+### Added
+- Plan-time validation of `criteria` shape on `fianu_policy.detail.variations[*].criteria`,
+  `fianu_gate.detail.policy.variations[*].criteria`, and
+  `fianu_gate.detail.pods[*].matching[*]`. Catches the three error cases the
+  server's `PolicyAssetGroup.IsValid` rejects at apply time —
+  `expressions` + `indexes` both set, `expressions` without `asset.type`,
+  and an entirely empty criteria. Exact parity: the validator imports
+  `fianu_entities` and calls `(*PolicyAssetGroup).IsValid()` directly, so
+  the server's error message flows through verbatim and any future
+  rule changes in core are picked up automatically on SDK bump.
+  See `internal/resources/base/criteria_validator.go`.
+- Plan-time validation on `fianu_policy` that every variation carries
+  `criteria.asset.type`. `fianu_policy` has no top-level `assets`/`override`
+  attribute so the server's `allVariationsHaveCriteriaAsset` rule
+  (`policy.go::PolicyIsValid`) is the only path that satisfies the
+  policy-level binding check — including for indexes-only variations,
+  which the per-criteria validator alone doesn't reject.
+
+## [0.2.1] - 2026-06-08
+
 ### Fixed
 - OIDC client-credentials token requests now include the `audience` form
   parameter. Without it, Auth0 M2M clients whose tenant has no Default
@@ -124,6 +146,8 @@ Initial public release.
 - Three vendored production controls under `examples/resources/fianu_control/`
   (`sast_checkmarx`, `unit_tests_pytest`, `container_scan_wiz`).
 
-[Unreleased]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.1.31...v0.2.0
 [0.1.0]: https://github.com/fianulabs/terraform-provider-fianu/releases/tag/v0.1.0

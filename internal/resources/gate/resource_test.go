@@ -244,6 +244,7 @@ resource "fianu_gate" "security" {
       variations = [
         {
           criteria = {
+            asset = { type = "repository" }
             expressions = [
               { expression = "asset.scm.repository startsWith 'prod-'" },
             ]
@@ -272,6 +273,7 @@ resource "fianu_gate" "security" {
         matching = [
           {
             protection_level = "check"
+            asset            = { type = "repository" }
             expressions = [
               { expression = "asset.scm.repository startsWith 'staging-' || asset.scm.repository startsWith 'preview-'" },
             ]

@@ -14,6 +14,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+
+	"github.com/fianulabs/terraform-provider-fianu/internal/resources/base"
 )
 
 // podType is the fixed pod_type the provider sets on gate-check-rule pods.
@@ -89,6 +91,13 @@ func podsAttribute() schema.ListNestedAttribute {
 					MarkdownDescription: "Scoped overrides: each entry binds an asset group (CEL expressions, index references, or an unscoped asset type) to its own protection level. Most-restrictive wins (`enforce` > `check` > inherit). When omitted the pod's top-level `protection_level` applies to all gated traffic.",
 					Optional:            true,
 					NestedObject: schema.NestedAttributeObject{
+						// Per-element validator: enforces the three-shape rule on
+						// each matching scope so plan surfaces bad shapes before
+						// apply, matching the criteria validator on
+						// variations[*].criteria.
+						Validators: []validator.Object{
+							base.CriteriaShapeValidator(),
+						},
 						Attributes: map[string]schema.Attribute{
 							"protection_level": schema.StringAttribute{
 								MarkdownDescription: "Protection level for this scope. `enforce` or `check`. Omit to inherit the pod's top-level level.",

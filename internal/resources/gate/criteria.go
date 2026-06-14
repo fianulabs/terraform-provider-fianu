@@ -11,6 +11,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+
+	"github.com/fianulabs/terraform-provider-fianu/internal/resources/base"
 )
 
 
@@ -54,6 +56,9 @@ func criteriaAttribute() schema.SingleNestedAttribute {
 	return schema.SingleNestedAttribute{
 		MarkdownDescription: "Asset group criteria. Restricts this variation to assets matching either a set of CEL expressions or one or more existing indexes. When omitted, the variation applies to every asset in the gate's scope.",
 		Optional:            true,
+		Validators: []validator.Object{
+			base.CriteriaShapeValidator(),
+		},
 		Attributes: map[string]schema.Attribute{
 			"name": schema.StringAttribute{
 				MarkdownDescription: "Optional human-readable name for the asset group.",

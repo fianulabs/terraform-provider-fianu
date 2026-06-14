@@ -57,10 +57,11 @@ const entityType = "policy"
 
 // Compile-time interface checks.
 var (
-	_ resource.Resource                = (*policyResource)(nil)
-	_ resource.ResourceWithConfigure   = (*policyResource)(nil)
-	_ resource.ResourceWithImportState = (*policyResource)(nil)
-	_ resource.ResourceWithIdentity    = (*policyResource)(nil)
+	_ resource.Resource                     = (*policyResource)(nil)
+	_ resource.ResourceWithConfigure        = (*policyResource)(nil)
+	_ resource.ResourceWithImportState      = (*policyResource)(nil)
+	_ resource.ResourceWithIdentity         = (*policyResource)(nil)
+	_ resource.ResourceWithValidateConfig   = (*policyResource)(nil)
 )
 
 // NewResource is the factory the provider package registers.
@@ -268,6 +269,46 @@ func (r *policyResource) ImportState(ctx context.Context, req resource.ImportSta
 		return
 	}
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("path"), key)...)
+}
+
+// ValidateConfig enforces the policy-level binding rule from the server's
+// `PolicyIsValid` (`core/external/db/types/fianu/entities/policy.go`): when
+// `Detail.Assets` is empty, every variation must carry
+// `criteria.asset.type` (`allVariationsHaveCriteriaAsset`). `fianu_policy`'s
+// schema has no top-level assets/override attribute, so the only path that
+// satisfies the rule is per-variation asset binding — including on
+// indexes-only variations, which the per-criteria validator (which calls
+// `PolicyAssetGroup.IsValid` directly) doesn't reject on its own.
+//
+// Mirrors the server check rather than calls it directly because
+// `PolicyIsValid` depends on control entity-ID resolution (server-side) and
+// would error on fields the provider can't populate at plan time.
+func (r *policyResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var cfg policyModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	variationsPath := path.Root("detail").AtName("variations")
+	for i, v := range cfg.Detail.Variations {
+		entry := variationsPath.AtListIndex(i)
+		if v.Criteria == nil {
+			resp.Diagnostics.AddAttributeError(
+				entry,
+				"variation missing criteria.asset.type",
+				"fianu_policy has no top-level `assets`/`override` attribute, so every variation needs `criteria = { asset = { type = \"<asset_type>\" } }`. Without it the server rejects the deploy with `policy has no asset binding`.",
+			)
+			continue
+		}
+		if v.Criteria.Asset == nil || v.Criteria.Asset.Type.IsNull() || v.Criteria.Asset.Type.IsUnknown() || v.Criteria.Asset.Type.ValueString() == "" {
+			resp.Diagnostics.AddAttributeError(
+				entry.AtName("criteria"),
+				"variation criteria missing asset.type",
+				"fianu_policy has no top-level `assets`/`override` attribute, so every variation needs `criteria.asset.type` set (including indexes-only variations). Without it the server rejects the deploy with `policy has no asset binding`.",
+			)
+		}
+	}
 }
 
 // deployPolicy is the shared Create/Update body. Marshals the entity to JSON,

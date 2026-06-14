@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -230,9 +231,11 @@ resource "fianu_policy" "criteria" {
 
 // TestAccFianuPolicy_CriteriaReferencesIndex covers the canonical
 // "criteria.indexes" form — a policy that references an existing index by
-// path instead of inlining CEL. The wire payload must carry an IndexReference
-// with IndexPath set (and IndexID empty); the Asset binding must NOT be
-// populated since the linked index already carries the asset type.
+// path instead of inlining CEL. The wire payload carries an IndexReference
+// with IndexPath set; Asset is also populated because the policy-level
+// `allVariationsHaveCriteriaAsset` check (in `PolicyIsValid`) requires
+// asset.type on every variation when `Detail.Assets` is empty — and
+// `fianu_policy` has no top-level assets/override attribute.
 func TestAccFianuPolicy_CriteriaReferencesIndex(t *testing.T) {
 	stub := newPolicyStub(t)
 	defer stub.server.Close()
@@ -252,6 +255,7 @@ resource "fianu_policy" "indexed" {
     variations = [
       {
         criteria = {
+          asset = { type = "repository" }
           indexes = [
             { path = "compliance.indexes.prod_repos" },
           ]
@@ -284,12 +288,142 @@ resource "fianu_policy" "indexed" {
 	if got := crit.Indexes[0].IndexID; got != "" {
 		t.Errorf("criteria.indexes[0].id should be empty when path is set, got %q", got)
 	}
-	// The "indexes only" shape must NOT populate Asset — server-side
-	// PolicyAssetGroup.IsValid rejects expressions+indexes but accepts
-	// asset+indexes (informational). Provider should leave Asset nil when
-	// the user only supplied indexes.
-	if crit.Asset != nil && crit.Asset.Type != "" {
-		t.Errorf("criteria.asset.type should be empty for indexes-only shape, got %q", crit.Asset.Type)
+	// Asset binding now required on every variation (policy-level
+	// validator), so check it flows through.
+	if crit.Asset == nil || string(crit.Asset.Type) != "repository" {
+		t.Errorf("criteria.asset.type = %v, want repository", crit.Asset)
+	}
+}
+
+// TestAccFianuPolicy_ValidatesCriteriaShape covers the plan-time per-criteria
+// validator (CriteriaShapeValidator) — mirrors the server's
+// PolicyAssetGroup.IsValid via direct import. Each subtest exercises one of
+// the three documented error cases.
+func TestAccFianuPolicy_ValidatesCriteriaShape(t *testing.T) {
+	t.Setenv("TF_ACC", "1")
+
+	cases := []struct {
+		name        string
+		config      string
+		errContains string
+	}{
+		{
+			name: "expressions without asset.type",
+			config: `
+provider "fianu" {}
+resource "fianu_policy" "bad" {
+  path = "test.policy.bad"
+  name = "Bad"
+  detail = {
+    type = "standard"
+    control = { path = "test.control.basic" }
+    variations = [{
+      criteria = {
+        expressions = [{ expression = "asset.scm.repository startsWith 'prod-'" }]
+      }
+      policy = jsonencode({ required = true })
+    }]
+  }
+}
+`,
+			errContains: "criteria.asset.type is required",
+		},
+		{
+			name: "expressions + indexes both set",
+			config: `
+provider "fianu" {}
+resource "fianu_policy" "bad" {
+  path = "test.policy.bad"
+  name = "Bad"
+  detail = {
+    type = "standard"
+    control = { path = "test.control.basic" }
+    variations = [{
+      criteria = {
+        asset = { type = "repository" }
+        expressions = [{ expression = "asset.scm.repository startsWith 'prod-'" }]
+        indexes = [{ path = "f.idx.foo" }]
+      }
+      policy = jsonencode({ required = true })
+    }]
+  }
+}
+`,
+			errContains: "[F_40007]",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resource.Test(t, resource.TestCase{
+				ProtoV6ProviderFactories: protoV6Factories(),
+				Steps: []resource.TestStep{{
+					Config:      tc.config,
+					ExpectError: regexp.MustCompile(regexp.QuoteMeta(tc.errContains)),
+				}},
+			})
+		})
+	}
+}
+
+// TestAccFianuPolicy_VariationsRequireAsset covers the policy-level
+// ValidateConfig that mirrors `allVariationsHaveCriteriaAsset`. Catches the
+// two cases the per-criteria validator can't: indexes-only without asset,
+// and variations with no criteria block at all.
+func TestAccFianuPolicy_VariationsRequireAsset(t *testing.T) {
+	t.Setenv("TF_ACC", "1")
+
+	cases := []struct {
+		name   string
+		config string
+	}{
+		{
+			name: "indexes-only without asset.type",
+			config: `
+provider "fianu" {}
+resource "fianu_policy" "bad" {
+  path = "test.policy.bad"
+  name = "Bad"
+  detail = {
+    type = "standard"
+    control = { path = "test.control.basic" }
+    variations = [{
+      criteria = { indexes = [{ path = "f.idx.foo" }] }
+      policy = jsonencode({ required = true })
+    }]
+  }
+}
+`,
+		},
+		{
+			name: "variation with no criteria block",
+			config: `
+provider "fianu" {}
+resource "fianu_policy" "bad" {
+  path = "test.policy.bad"
+  name = "Bad"
+  detail = {
+    type = "standard"
+    control = { path = "test.control.basic" }
+    variations = [{
+      policy = jsonencode({ required = true })
+    }]
+  }
+}
+`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resource.Test(t, resource.TestCase{
+				ProtoV6ProviderFactories: protoV6Factories(),
+				Steps: []resource.TestStep{{
+					Config:      tc.config,
+					ExpectError: regexp.MustCompile(`(?s)variation.*needs.*asset`),
+				}},
+			})
+		})
 	}
 }
 

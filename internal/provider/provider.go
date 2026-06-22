@@ -118,7 +118,7 @@ func (p *fianuProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp
 				Optional:            true,
 			},
 			"token": schema.StringAttribute{
-				MarkdownDescription: "Pre-issued bearer token, mutually exclusive with the OIDC client-credentials fields. Falls back to `FIANU_TOKEN`. Use this only when you already hold a long-lived token (e.g., a CI service account); the OIDC flow is preferred for everything else.",
+				MarkdownDescription: "Pre-issued bearer token, mutually exclusive with the OIDC client-credentials fields. Falls back to `FIANU_TOKEN`, then to a token persisted by `fianu auth login` at `~/.fianu/fianu.conf.v1` (override the dir with `FIANU_CLI_HOME_DIR`) — this is how the GitHub OIDC / WIF federated flow hands a token to the provider with no static secrets. Use an explicit token only when you already hold a long-lived one (e.g., a CI service account); the OIDC flow is preferred for everything else.",
 				Optional:            true,
 				Sensitive:           true,
 			},
@@ -147,9 +147,7 @@ func (p *fianuProvider) Configure(ctx context.Context, req provider.ConfigureReq
 
 	if tok := stringOrEnv(cfg.Token, envToken); tok != "" {
 		opts = append(opts, sdk.WithBearerToken(tok))
-	} else {
-		clientID := stringOrEnv(cfg.ClientID, envClientID)
-		clientSecret := stringOrEnv(cfg.ClientSecret, envClientSecret)
+	} else if clientID, clientSecret := stringOrEnv(cfg.ClientID, envClientID), stringOrEnv(cfg.ClientSecret, envClientSecret); clientID != "" && clientSecret != "" {
 		tokenURL := stringOrEnv(cfg.TokenURL, envTokenURL)
 		if tokenURL == "" {
 			tokenURL = defaultTokenURL
@@ -158,14 +156,17 @@ func (p *fianuProvider) Configure(ctx context.Context, req provider.ConfigureReq
 		if audience == "" {
 			audience = defaultAudience
 		}
-		if clientID == "" || clientSecret == "" {
-			resp.Diagnostics.AddError("authentication misconfigured", errMissingCredentials{}.Error())
-			return
-		}
 		opts = append(opts,
 			sdk.WithOIDC(clientID, clientSecret, tokenURL),
 			sdk.WithOIDCAudience(audience),
 		)
+	} else if tok := readCLIConfigToken(); tok != "" {
+		// Fall back to a token persisted by `fianu auth login` (e.g. the WIF
+		// federated flow in CI writes ~/.fianu/fianu.conf.v1).
+		opts = append(opts, sdk.WithBearerToken(tok))
+	} else {
+		resp.Diagnostics.AddError("authentication misconfigured", errMissingCredentials{}.Error())
+		return
 	}
 
 	client, err := sdk.NewClient(opts...)
@@ -218,5 +219,5 @@ func stringOrEnv(attr types.String, envKey string) string {
 type errMissingCredentials struct{}
 
 func (errMissingCredentials) Error() string {
-	return "no credentials configured. Set either `token` (or FIANU_TOKEN) for static-bearer auth, or both `client_id` and `client_secret` (or the matching FIANU_CLIENT_ID/FIANU_CLIENT_SECRET env vars) for OIDC client-credentials auth. `token_url` defaults to https://cloudauth.fianu.io/oauth/token and only needs to be set when overriding the IDP."
+	return "no credentials configured. Set either `token` (or FIANU_TOKEN) for static-bearer auth, or both `client_id` and `client_secret` (or the matching FIANU_CLIENT_ID/FIANU_CLIENT_SECRET env vars) for OIDC client-credentials auth, or run `fianu auth login` (e.g. the federated flow in CI) to persist a token to ~/.fianu/fianu.conf.v1. `token_url` defaults to https://cloudauth.fianu.io/oauth/token and only needs to be set when overriding the IDP."
 }

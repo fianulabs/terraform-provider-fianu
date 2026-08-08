@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
 	core_indexes "github.com/fianulabs/core/v2/external/db/indexes"
+	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
 	db_vars "github.com/fianulabs/core/v2/external/db/variables"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"

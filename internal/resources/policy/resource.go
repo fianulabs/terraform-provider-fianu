@@ -57,11 +57,11 @@ const entityType = "policy"
 
 // Compile-time interface checks.
 var (
-	_ resource.Resource                     = (*policyResource)(nil)
-	_ resource.ResourceWithConfigure        = (*policyResource)(nil)
-	_ resource.ResourceWithImportState      = (*policyResource)(nil)
-	_ resource.ResourceWithIdentity         = (*policyResource)(nil)
-	_ resource.ResourceWithValidateConfig   = (*policyResource)(nil)
+	_ resource.Resource                   = (*policyResource)(nil)
+	_ resource.ResourceWithConfigure      = (*policyResource)(nil)
+	_ resource.ResourceWithImportState    = (*policyResource)(nil)
+	_ resource.ResourceWithIdentity       = (*policyResource)(nil)
+	_ resource.ResourceWithValidateConfig = (*policyResource)(nil)
 )
 
 // NewResource is the factory the provider package registers.

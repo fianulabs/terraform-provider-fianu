@@ -9,10 +9,10 @@
 Manage Fianu compliance entities (controls, gates, policies, indexes,
 environments, targets, collections) declaratively from Terraform.
 
-> **Status:** v0.1 — early development. Schema and resource shapes will change
+> **Status:** v0.3 — early development. Schema and resource shapes will change
 > before v1.0. See [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
 
-## What v0.1 ships
+## What ships today
 
 | Resource          | Status        |
 | ----------------- | ------------- |
@@ -20,9 +20,98 @@ environments, targets, collections) declaratively from Terraform.
 | `fianu_gate`      | ✅ Available  |
 | `fianu_index`     | ✅ Available  |
 | `fianu_policy`    | ✅ Available  |
-| `fianu_environment` | ⏳ v0.1.x   |
-| `fianu_target`    | ⏳ v0.1.x     |
-| `fianu_collection` | ⏳ v0.1.x    |
+| `fianu_notification` | ✅ Available |
+| `fianu_entity_pod` | ✅ Available  |
+| `fianu_environment` | ✅ Available |
+| `fianu_target`    | ✅ Available  |
+| `fianu_collection` | ✅ Available |
+
+## Pods — living configuration
+
+Not every knob is an entity. **Pods** are JSON-valued rows keyed by
+`(entity_id, pod_type, key)` that hang off an entity and change how it behaves,
+without minting a new entity version. Notification settings, platform-capability
+activations, display layouts and LLM context rules are all pods.
+
+Two resources cover them:
+
+- **`fianu_notification`** — typed. Real HCL blocks, plan-time validation, and
+  an `rules` matcher that is the same primitive as `fianu_policy` variation
+  criteria and `fianu_gate` check matching.
+- **`fianu_entity_pod`** — generic. `value` is a JSON string you author with
+  `jsonencode({...})`, so a pod type the provider has no typed resource for
+  still works on day one.
+
+```hcl
+resource "fianu_notification" "sast_failures" {
+  entity_uuid = fianu_control.sast.uuid
+  type        = "notification_attestation_failure"
+
+  enabled    = true
+  urgency    = 4
+  mode       = "transition"
+  recipients = ["control_owner", "asset_owner"]
+  channels   = ["email", "slack"]
+
+  rules = {
+    asset       = { type = "repository" }
+    expressions = [{ expression = "asset.scm.repository startsWith 'prod-'" }]
+  }
+}
+```
+
+Both manage **entity-scoped** pods only. Tenant-, asset-, and user-scope
+notification pods (channel destinations, provider integrations, quiet hours,
+per-asset mutes) are per-human runtime preferences rather than declarative
+infrastructure, and are managed in the Console.
+
+Neither resource hydrates its payload back from the server on refresh. The
+server canonicalises pod values on write — CEL expressions in particular get
+compiled and rewritten into index references — so reading them into state would
+surface permanent false drift. Refresh confirms the pod still exists and evicts
+state on a 404, the same rule the entity resources follow for their `detail`
+sections.
+
+## Migrating `fianu_gate` pods → `detail.gate` (0.3.0)
+
+Fianu Console removed the `gate_check_rule` entity pod. Gate rules are now
+**native to the gate entity** — versioned with it and written in the same deploy
+call, instead of through separate pod API round-trips.
+
+Rename the block and move each pod into `checks[]`. A pod's `key` becomes the
+check's `name` (checks are positional, not keyed, so nothing else references it):
+
+```diff
+  detail = {
+-   pods = [
+-     {
+-       key              = "default"
+-       protection_level = "enforce"
+-     },
+-   ]
++   gate = {
++     enabled = true          # NEW: master switch. Omitted means the gate is off.
++     checks = [
++       {
++         name             = "default"
++         protection_level = "enforce"
++       },
++     ]
++   }
+  }
+```
+
+Notes:
+
+- `detail.pod_keys` is gone from state. Terraform will show it as removed on the
+  first plan after upgrading; no action needed.
+- `completion_action` is now validated — only `post_check_status` and
+  `auto_approve_pr` are accepted (omit for no automation).
+- `gating_sources` is new: deciding systems that must **all** pass. Defaults to
+  `["fianu"]`.
+- Gate pauses are **not** managed here. They are operational state owned by
+  `PATCH /gates/{key}/pause`, stored outside the gate version, and an apply
+  never clears an active incident pause.
 
 ## Authentication
 

@@ -21,10 +21,15 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	controltest "github.com/fianulabs/terraform-provider-fianu/internal/actions/control_test"
+	"github.com/fianulabs/terraform-provider-fianu/internal/resources/collection"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/control"
+	"github.com/fianulabs/terraform-provider-fianu/internal/resources/entitypod"
+	"github.com/fianulabs/terraform-provider-fianu/internal/resources/environment"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/gate"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/index"
+	"github.com/fianulabs/terraform-provider-fianu/internal/resources/notification"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/policy"
+	"github.com/fianulabs/terraform-provider-fianu/internal/resources/target"
 )
 
 // Provider config env-var keys. Used as fallbacks when the matching HCL
@@ -183,10 +188,15 @@ func (p *fianuProvider) Configure(ctx context.Context, req provider.ConfigureReq
 
 func (p *fianuProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
+		collection.NewResource,
 		control.NewResource,
+		entitypod.NewResource,
+		environment.NewResource,
 		gate.NewResource,
 		index.NewResource,
+		notification.NewResource,
 		policy.NewResource,
+		target.NewResource,
 	}
 }
 

@@ -81,21 +81,24 @@ resource "fianu_gate" "sox_deploy_gate" {
       }
     }
 
-    pods = [
-      {
-        key              = "default"
-        protection_level = "enforce"
-        matching = [
-          {
-            # check-mode for staging branches inside the SOX universe —
-            # still surfaces violations but doesn't block the deploy.
-            protection_level = "check"
-            indexes = [
-              { path = fianu_index.sox_repos.path },
-            ]
-          },
-        ]
-      },
-    ]
+    gate = {
+      enabled = true
+      checks = [
+        {
+          name             = "default"
+          protection_level = "enforce"
+          matching = [
+            {
+              # check-mode for staging branches inside the SOX universe —
+              # still surfaces violations but doesn't block the deploy.
+              protection_level = "check"
+              indexes = [
+                { path = fianu_index.sox_repos.path },
+              ]
+            },
+          ]
+        },
+      ]
+    }
   }
 }

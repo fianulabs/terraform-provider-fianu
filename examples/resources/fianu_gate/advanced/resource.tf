@@ -1,7 +1,7 @@
 # Advanced gate: tiered policy variations with CEL criteria + a per-scope
 # pod that flips production-only into enforce while leaving everything else
 # at check-mode. Demonstrates the full surface: identity, environments,
-# inline policy with variation criteria, and pipeline-automation pods with
+# inline policy with variation criteria, and gate-native checks with
 # scoped overrides.
 #
 # CEL note: combine clauses inside a single expression with `&&`/`||`.
@@ -65,31 +65,39 @@ resource "fianu_gate" "tiered_security" {
       }
     }
 
-    pods = [
-      # Default rule — enforce everywhere unless a more specific pod
-      # overrides for a given scope.
-      {
-        key              = "default"
-        name             = "Default enforcement"
-        protection_level = "enforce"
-        enabled          = true
-      },
+    # Gate-native check configuration. Versioned with the gate and shipped
+    # in the same deploy call, so a config change is atomic with the entity.
+    gate = {
+      # Master switch. Omit and the gate never activates automation.
+      enabled = true
 
-      # Scoped rule — staging/preview repos run in check mode (the gate
-      # evaluates but never blocks). Production keeps default enforce.
-      {
-        key              = "staging-relaxed"
-        name             = "Staging check-only override"
-        protection_level = "enforce"
-        matching = [
-          {
-            protection_level = "check"
-            expressions = [
-              { expression = "asset.scm.repository startsWith 'staging-' || asset.scm.repository startsWith 'preview-'" },
-            ]
-          },
-        ]
-      },
-    ]
+      checks = [
+        # Default rule — enforce everywhere unless a more specific check
+        # overrides for a given scope. Most restrictive wins.
+        {
+          name              = "default"
+          protection_level  = "enforce"
+          enabled           = true
+          gating_sources    = ["fianu"]
+          completion_action = "post_check_status"
+        },
+
+        # Scoped rule — staging/preview repos run in check mode (the gate
+        # evaluates but never blocks). Production keeps default enforce.
+        {
+          name             = "staging-relaxed"
+          protection_level = "enforce"
+          matching = [
+            {
+              protection_level = "check"
+              asset            = { type = "repository" }
+              expressions = [
+                { expression = "asset.scm.repository startsWith 'staging-' || asset.scm.repository startsWith 'preview-'" },
+              ]
+            },
+          ]
+        },
+      ]
+    }
   }
 }

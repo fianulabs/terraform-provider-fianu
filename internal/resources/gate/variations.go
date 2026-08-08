@@ -17,6 +17,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+
+	"github.com/fianulabs/terraform-provider-fianu/internal/resources/base"
 )
 
 // variationModel is one entry in a gate's nested policy variations.
@@ -35,10 +37,10 @@ import (
 // Requirements" dialog (Required Controls + Required Gates) and makes
 // the gate→child wiring impossible to author incorrectly.
 type variationModel struct {
-	Effect   types.String   `tfsdk:"effect"`
-	Priority types.Int64    `tfsdk:"priority"`
-	Locked   types.Bool     `tfsdk:"locked"`
-	Criteria *criteriaModel `tfsdk:"criteria"`
+	Effect   types.String        `tfsdk:"effect"`
+	Priority types.Int64         `tfsdk:"priority"`
+	Locked   types.Bool          `tfsdk:"locked"`
+	Criteria *base.CriteriaModel `tfsdk:"criteria"`
 	// RequiredControls is the list of fianu_control entities this variation
 	// gates on. Each entry is either a control path (e.g.,
 	// "terraform.example.iac.scan") or an entity UUID. Paths are resolved
@@ -84,7 +86,7 @@ func variationsAttribute() schema.ListNestedAttribute {
 					Optional:            true,
 					ElementType:         types.StringType,
 				},
-				"criteria": criteriaAttribute(),
+				"criteria": base.CriteriaAttribute("gate"),
 			},
 		},
 	}
@@ -150,7 +152,7 @@ func buildVariations(ctx context.Context, client *sdk.Client, in []variationMode
 			Priority:     int(v.Priority.ValueInt64()),
 			Locked:       v.Locked.ValueBool(),
 			Policy:       policy,
-			Criteria:     v.Criteria.toEntity(),
+			Criteria:     v.Criteria.ToEntity(),
 		}
 	}
 	return out, diags

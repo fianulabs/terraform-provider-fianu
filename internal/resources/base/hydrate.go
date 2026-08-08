@@ -43,9 +43,21 @@ func (m *EnvelopeModel) Hydrate(ctx context.Context, env EntityEnvelope) diag.Di
 	var diags diag.Diagnostics
 
 	m.ID = types.StringValue(FormatID(env.EntityType, env.Path))
-	m.UUID = types.StringValue(env.EntityID)
 	m.Path = types.StringValue(env.Path)
 	m.Name = types.StringValue(env.Name)
+
+	// Keep a known UUID when the server didn't return one. A deploy that
+	// content-hashes identical comes back action="skipped" with an empty
+	// EntityID — no new version was minted, so there is nothing to report.
+	// Blanking the UUID there strips Delete of the only handle it archives by
+	// (`if uuid == "" { return }`), silently leaking the entity. Same reason
+	// EnvelopeFromDeployMetadata takes fallbackPath/fallbackName.
+	//
+	// An unknown UUID (Create) is still overwritten: leaving it unknown would
+	// fail apply with "provider produced inconsistent result".
+	if env.EntityID != "" || m.UUID.IsNull() || m.UUID.IsUnknown() {
+		m.UUID = types.StringValue(env.EntityID)
+	}
 
 	versionObj, d := types.ObjectValue(versionAttrTypeMap(), map[string]attr.Value{
 		"semantic":  types.StringValue(env.VersionSemantic),

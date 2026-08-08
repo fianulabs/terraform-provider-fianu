@@ -37,12 +37,15 @@ resource "fianu_gate" "security" {
       }
     }
 
-    pods = [
-      {
-        key              = "default"
-        protection_level = "enforce"
-      },
-    ]
+    gate = {
+      enabled = true
+      checks = [
+        {
+          name             = "default"
+          protection_level = "enforce"
+        },
+      ]
+    }
   }
 }
 ```
@@ -81,12 +84,11 @@ Optional:
 - `config` (Attributes) Operational configuration — scope of evaluation, retry behavior, evidence/attestation flags. (see [below for nested schema](#nestedatt--detail--config))
 - `description` (String) Free-form description of what the gate enforces.
 - `environments` (Attributes List) Environment entities this gate binds to. Maps to the `environments` edge on the gate entity — server materialises these as `parent=environment, child=gate` entity_edges rows. Gate-only field (controls don't bind to environments). (see [below for nested schema](#nestedatt--detail--environments))
-- `pods` (Attributes List) Pipeline automation rules attached to this gate. Each pod is a JSON-valued row scoped to the gate (`pod_type = "gate_check_rule"`). The pod's `protection_level` sets the default enforcement, and `matching[]` lets per-scope CEL expressions override the protection level for subsets of the gate's traffic. (see [below for nested schema](#nestedatt--detail--pods))
+- `gate` (Attributes) Gate-native check configuration (`detail.gate`) — the master switch and the rules that decide whether the gate runs, at what protection level, and whether it drives SCM automation. Versioned with the gate. Replaces the removed `gate_check_rule` entity pods. (see [below for nested schema](#nestedatt--detail--gate))
 - `policy` (Attributes) Inline policy authored against this gate. The provider deploys this as a SEPARATE `fianu_entities.Policy` entity whose `control.path` references the gate. Optional — omit to deploy a gate with no attached policy (you'd then add policies via `fianu_policy` resources). Set this for the canonical gate+policy authoring flow. (see [below for nested schema](#nestedatt--detail--policy))
 
 Read-Only:
 
-- `pod_keys` (List of String) Computed list of pod keys currently deployed against this gate. Used by the provider to compute add/update/delete diffs across applies.
 - `policy_uuid` (String) Computed UUID of the deployed policy entity (when `policy` is set). Tracked in state so Delete can archive the policy by UUID.
 
 <a id="nestedatt--detail--config"></a>
@@ -110,55 +112,60 @@ Optional:
 - `uuid` (String) Environment entity UUID. Pin this when binding across path renames.
 
 
-<a id="nestedatt--detail--pods"></a>
-### Nested Schema for `detail.pods`
-
-Required:
-
-- `key` (String) Pod key — unique per gate. Stable identifier; the provider uses this to compute add/update/delete diffs across applies.
+<a id="nestedatt--detail--gate"></a>
+### Nested Schema for `detail.gate`
 
 Optional:
 
-- `completion_action` (String) Optional post-evaluation action identifier (server-specific).
-- `description` (String) Free-form description.
-- `enabled` (Boolean) Whether this pod participates in gating. Defaults to true.
-- `matching` (Attributes List) Scoped overrides: each entry binds an asset group (CEL expressions, index references, or an unscoped asset type) to its own protection level. Most-restrictive wins (`enforce` > `check` > inherit). When omitted the pod's top-level `protection_level` applies to all gated traffic. (see [below for nested schema](#nestedatt--detail--pods--matching))
-- `name` (String) Human-readable name for the pod.
-- `protection_level` (String) Default protection level when no `matching` scope applies. `enforce` blocks deployments on gate failure; `check` runs the gate but always approves. Defaults to `enforce`.
+- `checks` (Attributes List) Independently-evaluated rules. Every check whose `matching` scope applies contributes its protection level, and the most restrictive wins (`enforce` > `check` > inherit). (see [below for nested schema](#nestedatt--detail--gate--checks))
+- `enabled` (Boolean) The gate's master switch. Omitted means **off** — an unconfigured gate never activates automation on its own. Set `true` to turn the gate on.
 
-<a id="nestedatt--detail--pods--matching"></a>
-### Nested Schema for `detail.pods.matching`
+<a id="nestedatt--detail--gate--checks"></a>
+### Nested Schema for `detail.gate.checks`
 
 Optional:
 
-- `asset` (Attributes) Per-scope asset binding. Required when `expressions` are supplied OR when the scope is unscoped (no expressions and no indexes). Omit when `indexes` is set — the linked index already carries the asset type. (see [below for nested schema](#nestedatt--detail--pods--matching--asset))
-- `expressions` (Attributes List) CEL expressions defining the scope. Combine clauses with `&&`/`||` inside a single expression; multiple entries are AND'd together. Mutually exclusive with `indexes`. (see [below for nested schema](#nestedatt--detail--pods--matching--expressions))
-- `indexes` (Attributes List) References to existing indexes (by id or path). Mutually exclusive with `expressions` and `asset` — the linked index already carries asset type and CEL. (see [below for nested schema](#nestedatt--detail--pods--matching--indexes))
-- `protection_level` (String) Protection level for this scope. `enforce` or `check`. Omit to inherit the pod's top-level level.
+- `completion_action` (String) SCM automation to drive after evaluation completes. `post_check_status` posts a GitHub Check Run / GitLab Commit Status; `auto_approve_pr` approves the PR/MR when all enforced gates pass. Omit for no automation.
+- `enabled` (Boolean) Whether this check participates in resolution. Omitted means **enabled** — the opposite default from the gate-level `enabled`, because a check only exists because someone authored it.
+- `gating_sources` (List of String) Deciding systems that must **all** pass for this check to pass. Defaults to `["fianu"]`. Additional sources are platform instance keys whose platform declares the `gatingSource` capability.
+- `matching` (Attributes List) CEL scope groups, each with an optional per-scope protection-level override. Empty matches unconditionally, so the check's top-level `protection_level` applies to all gated traffic. (see [below for nested schema](#nestedatt--detail--gate--checks--matching))
+- `name` (String) Operator-facing label. Not an identifier — checks are positional within the list.
+- `protection_level` (String) Default protection level when no `matching` scope overrides it. `enforce` blocks deployments on gate failure; `check` runs the gate but always approves. Defaults to `enforce`.
 
-<a id="nestedatt--detail--pods--matching--asset"></a>
-### Nested Schema for `detail.pods.matching.asset`
+<a id="nestedatt--detail--gate--checks--matching"></a>
+### Nested Schema for `detail.gate.checks.matching`
+
+Optional:
+
+- `asset` (Attributes) Asset binding. Required when `expressions` are supplied OR when the scope is unscoped (no expressions and no indexes). Omit when `indexes` is set — the linked index already carries the asset type. (see [below for nested schema](#nestedatt--detail--gate--checks--matching--asset))
+- `expressions` (Attributes List) CEL expressions evaluated per-asset. Uses Fianu's CEL dialect — combine clauses inside a single expression with `&&`/`||`; multiple list entries are only needed when mixing OR semantics across separate predicates. Mutually exclusive with `indexes`. (see [below for nested schema](#nestedatt--detail--gate--checks--matching--expressions))
+- `indexes` (Attributes List) References to existing indexes (by id or path). Mutually exclusive with `expressions` and `asset` — the linked index already carries asset type and CEL. (see [below for nested schema](#nestedatt--detail--gate--checks--matching--indexes))
+- `protection_level` (String) Protection level for this scope. `enforce` or `check`. Omit to inherit the check's top-level level.
+
+<a id="nestedatt--detail--gate--checks--matching--asset"></a>
+### Nested Schema for `detail.gate.checks.matching.asset`
 
 Required:
 
 - `type` (String) Abstract asset type (e.g., `repository`, `application`, `module`). Built-ins are listed in the Console; orgs can register additional abstract asset types.
 
 
-<a id="nestedatt--detail--pods--matching--expressions"></a>
-### Nested Schema for `detail.pods.matching.expressions`
+<a id="nestedatt--detail--gate--checks--matching--expressions"></a>
+### Nested Schema for `detail.gate.checks.matching.expressions`
 
 Required:
 
-- `expression` (String) CEL expression evaluated against the gated event (e.g., `asset.scm.repository startsWith 'prod-'`).
+- `expression` (String) CEL expression evaluated against the asset (e.g., `asset.name startsWith 'prod-'`).
 
 
-<a id="nestedatt--detail--pods--matching--indexes"></a>
-### Nested Schema for `detail.pods.matching.indexes`
+<a id="nestedatt--detail--gate--checks--matching--indexes"></a>
+### Nested Schema for `detail.gate.checks.matching.indexes`
 
 Optional:
 
 - `id` (String) UUID of an existing index. Mutually exclusive with `path` within a single entry.
 - `path` (String) Entity path of an existing index (e.g., from `fianu_index.foo.path`). Mutually exclusive with `id` within a single entry.
+
 
 
 
@@ -183,7 +190,7 @@ Optional:
 
 Optional:
 
-- `criteria` (Attributes) Asset group criteria. Restricts this variation to assets matching either a set of CEL expressions or one or more existing indexes. When omitted, the variation applies to every asset in the gate's scope. (see [below for nested schema](#nestedatt--detail--policy--variations--criteria))
+- `criteria` (Attributes) Asset group criteria. Restricts this to assets matching either a set of CEL expressions or one or more existing indexes. When omitted, it applies to every asset in the gate's scope. (see [below for nested schema](#nestedatt--detail--policy--variations--criteria))
 - `effect` (String) What this variation does. `apply` enforces the required_controls/required_gates; `exempt` skips the gate entirely for matching assets. Defaults to `apply` when omitted.
 - `locked` (Boolean) When true, prevents downstream tenants from overriding this variation. Defaults to false.
 - `priority` (Number) Evaluation priority. Lower numbers run first. Defaults to 0.
@@ -195,10 +202,10 @@ Optional:
 
 Optional:
 
-- `asset` (Attributes) Per-criteria asset binding. Required when `expressions` are supplied OR when the criteria is unscoped (no expressions and no indexes). Omit when `indexes` is set — the linked index already carries the asset type. (see [below for nested schema](#nestedatt--detail--policy--variations--criteria--asset))
+- `asset` (Attributes) Asset binding. Required when `expressions` are supplied OR when the scope is unscoped (no expressions and no indexes). Omit when `indexes` is set — the linked index already carries the asset type. (see [below for nested schema](#nestedatt--detail--policy--variations--criteria--asset))
 - `combine_with` (String) How the expressions combine. `AND` (all must match) or `OR` (any may match). Defaults to `AND`.
 - `description` (String) Optional description of the criteria.
-- `expressions` (Attributes List) CEL expressions evaluated per-asset. Uses Fianu's CEL dialect — combine clauses inside a single expression with `&&`/`||`; multiple list entries are only needed when mixing OR semantics across separate predicates via `combine_with`. Mutually exclusive with `indexes`. (see [below for nested schema](#nestedatt--detail--policy--variations--criteria--expressions))
+- `expressions` (Attributes List) CEL expressions evaluated per-asset. Uses Fianu's CEL dialect — combine clauses inside a single expression with `&&`/`||`; multiple list entries are only needed when mixing OR semantics across separate predicates. Mutually exclusive with `indexes`. (see [below for nested schema](#nestedatt--detail--policy--variations--criteria--expressions))
 - `indexes` (Attributes List) References to existing indexes (by id or path). Mutually exclusive with `expressions` and `asset` — the linked index already carries asset type and CEL. (see [below for nested schema](#nestedatt--detail--policy--variations--criteria--indexes))
 - `name` (String) Optional human-readable name for the asset group.
 

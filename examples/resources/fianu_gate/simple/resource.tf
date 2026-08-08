@@ -32,11 +32,14 @@ resource "fianu_gate" "baseline_security" {
       }
     }
 
-    pods = [
-      {
-        key              = "default"
-        protection_level = "enforce"
-      },
-    ]
+    gate = {
+      enabled = true
+      checks = [
+        {
+          name             = "default"
+          protection_level = "enforce"
+        },
+      ]
+    }
   }
 }

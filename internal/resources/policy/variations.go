@@ -11,6 +11,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+
+	"github.com/fianulabs/terraform-provider-fianu/internal/resources/base"
 )
 
 // variationModel is one entry in detail.variations. Each variation pins the
@@ -18,10 +20,10 @@ import (
 // metric overrides under `policy`. Optional `criteria` narrows the variation
 // to assets matching a set of CEL expressions.
 type variationModel struct {
-	Effect   types.String   `tfsdk:"effect"`
-	Priority types.Int64    `tfsdk:"priority"`
-	Locked   types.Bool     `tfsdk:"locked"`
-	Criteria *criteriaModel `tfsdk:"criteria"`
+	Effect   types.String        `tfsdk:"effect"`
+	Priority types.Int64         `tfsdk:"priority"`
+	Locked   types.Bool          `tfsdk:"locked"`
+	Criteria *base.CriteriaModel `tfsdk:"criteria"`
 	// Policy is a JSON-encoded map[string]any of metric overrides. Kept as a
 	// string because the shape is per-control (whatever the control's
 	// policy_template declares as `measures`) and HCL can't express truly
@@ -57,7 +59,7 @@ func variationsAttribute() schema.ListNestedAttribute {
 					MarkdownDescription: "JSON-encoded map of metric overrides keyed by the control's policy_template measure names. Use `jsonencode({ required = true, vulnerabilities = { critical = { maximum = 0 } } })` to author.",
 					Required:            true,
 				},
-				"criteria": criteriaAttribute(),
+				"criteria": base.CriteriaAttribute("policy"),
 			},
 		},
 	}
@@ -74,7 +76,7 @@ func buildVariations(in []variationModel) []fianu_entities.PolicyVariation {
 			Priority:     int(v.Priority.ValueInt64()),
 			Locked:       v.Locked.ValueBool(),
 			Policy:       parsePolicyDetail(v.Policy.ValueString()),
-			Criteria:     v.Criteria.toEntity(),
+			Criteria:     v.Criteria.ToEntity(),
 		}
 	}
 	return out

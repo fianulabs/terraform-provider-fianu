@@ -135,9 +135,9 @@ type gatePolicyModel struct {
 	Override   *overrideModel   `tfsdk:"override"`
 
 	// Assets is the list of abstract asset-type paths the policy applies
-	// to. Required by the server validator unless override is supplied;
-	// the provider auto-derives this from override.asset.types when only
-	// override is set.
+	// to. Required by the server validator unless Override is supplied —
+	// an Override supersedes this list entirely, which is how the server
+	// already treated the two (it read Override and ignored Assets).
 	Assets []types.String `tfsdk:"assets"`
 }
 
@@ -202,7 +202,7 @@ func detailAttribute() schema.SingleNestedAttribute {
 					"variations": variationsAttribute(),
 					"override":   overrideAttribute(),
 					"assets": schema.ListAttribute{
-						MarkdownDescription: "Abstract asset-type paths the policy applies to (e.g., `[\"repository\"]`). Required unless `override.asset.types` is set — when only override is supplied, the provider auto-derives this list from it.",
+						MarkdownDescription: "Abstract asset-type paths the policy applies to (e.g., `[\"repository\"]`). Required unless `override` is set — an `override` block supersedes this list entirely, matching how the server resolved the two before.",
 						Optional:            true,
 						ElementType:         types.StringType,
 					},
@@ -541,24 +541,26 @@ func (r *gateResource) buildGatePolicyEntity(ctx context.Context, plan *gateMode
 		return nil, vDiags
 	}
 	p.Detail.Variations = variations
-	if policy.Override != nil {
-		p.Detail.Override = policy.Override.toEntity()
-	}
 
-	// Detail.Assets is required by the server validator. Prefer the
-	// explicit assets list; fall back to override.asset.types when only
-	// override is set.
-	assets := policy.Assets
-	if len(assets) == 0 && policy.Override != nil {
-		assets = policy.Override.Asset.Types
-	}
-	for _, typePath := range assets {
-		if typePath.IsNull() || typePath.IsUnknown() || typePath.ValueString() == "" {
-			continue
+	// Detail.Assets carries the whole asset scope; Detail.Override is never
+	// written. The two are equivalent — when Override is nil the server
+	// derives it from Assets via buildOverrideFromAssets before resolving
+	// scope (core/pkg/policies/service.go) — and Override is deprecated.
+	//
+	// Precedence matches what the server actually honoured before: with an
+	// override set, resolvePolicy read Override and ignored Assets entirely,
+	// so override wins here too rather than merging the two.
+	if policy.Override != nil {
+		p.Detail.Assets = policy.Override.toAssetRefs()
+	} else {
+		for _, typePath := range policy.Assets {
+			if typePath.IsNull() || typePath.IsUnknown() || typePath.ValueString() == "" {
+				continue
+			}
+			p.Detail.Assets = append(p.Detail.Assets, fianu_entities.PolicyAssetRef{
+				Path: typePath.ValueString(),
+			})
 		}
-		p.Detail.Assets = append(p.Detail.Assets, fianu_entities.PolicyAssetRef{
-			Path: typePath.ValueString(),
-		})
 	}
 	return p, nil
 }

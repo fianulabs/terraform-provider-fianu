@@ -62,6 +62,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   supplies one, or when the prior value is null/unknown (Create).
   Affected `fianu_policy`, `fianu_environment`, `fianu_target` and
   `fianu_collection`; `fianu_gate` had a local guard against the same failure.
+- `fianu_gate` no longer writes the deprecated `PolicyAssetOverride` shape on
+  its inline policy. `detail.policy.override` now folds into `Detail.Assets`,
+  which the server expands back into the same override via
+  `buildOverrideFromAssets` before resolving scope — identical resolution,
+  no deprecated field. No HCL change: `override` and `assets` keep working as
+  before, and `override` still supersedes `assets` exactly as the server
+  already treated them.
 - `fianu_entity_pod` no longer rejects unknown `pod_type` values on import.
   The schema accepts any pod type on create — that is the point of the generic
   resource — but `ImportState` validated against the pinned SDK's enum, so a

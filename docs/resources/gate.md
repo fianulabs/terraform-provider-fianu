@@ -179,9 +179,11 @@ Required:
 
 Optional:
 
-- `assets` (List of String) Abstract asset-type paths the policy applies to (e.g., `["repository"]`). Required unless `override.asset.types` is set — when only override is supplied, the provider auto-derives this list from it.
+- `assets` (List of String) Abstract asset-type paths the policy applies to (e.g., `["repository"]`). Required unless `override` is set — an `override` block supersedes this list entirely, matching how the server resolved the two before.
 - `name` (String) Policy display name. Defaults to the gate's `name` when omitted.
-- `override` (Attributes) Asset scope override. When set, narrows or expands the asset set the policy applies to beyond the target control's declared scope. (see [below for nested schema](#nestedatt--detail--policy--override))
+- `override` (Attributes) Asset scope override. When set, narrows or expands the asset set the policy applies to beyond the target control's declared scope.
+
+Prefer per-variation `criteria.asset.type` for new configuration — it is the shape the server canonicalises to, and the one `fianu_policy` uses. This block is kept because a gate variation with no criteria has no other way to say what it applies to. (see [below for nested schema](#nestedatt--detail--policy--override))
 - `path` (String) Policy entity path. Defaults to `<gate.path>.policy` when omitted.
 - `type` (String) Policy type. One of `standard`, `exception`, `target`. Defaults to `standard`.
 

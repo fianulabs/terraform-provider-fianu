@@ -442,6 +442,93 @@ resource "fianu_gate" "security" {
 }
 `
 
+// TestAccFianuGate_OverrideLandsOnAssets pins the override -> Detail.Assets
+// mapping. The provider stopped writing the deprecated Detail.Override and
+// relies on the server deriving it from Detail.Assets
+// (buildOverrideFromAssets, core/pkg/policies/service.go). That only resolves
+// identically if each ref lands in the arm it used to: a bare Path goes to
+// Types, and an "asset"-tagged ref goes to Explicit verbatim — including for
+// entity keys that are not UUIDs.
+func TestAccFianuGate_OverrideLandsOnAssets(t *testing.T) {
+	stub := newGateStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{Config: testAccConfigGateOverride},
+			{
+				Config: testAccConfigGateOverride,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+		},
+	})
+
+	policy, _ := stub.capturedPolicy.Load().(*fianu_entities.Policy)
+	if policy == nil {
+		t.Fatal("expected policy captured")
+	}
+	// The deprecated field must stay unset — that is the whole point.
+	if policy.Detail.Override != nil { //nolint:staticcheck // asserting we do NOT write the deprecated field
+		t.Errorf("Detail.Override should not be written, got %+v", policy.Detail.Override) //nolint:staticcheck
+	}
+	if len(policy.Detail.Assets) != 3 {
+		t.Fatalf("expected 3 asset refs (2 types + 1 explicit), got %d: %+v", len(policy.Detail.Assets), policy.Detail.Assets)
+	}
+
+	// Types: Path set, no UUID and no AssetType, so buildOverrideFromAssets
+	// falls to its default arm and appends to Types.
+	for i, want := range []string{"repository", "module"} {
+		got := policy.Detail.Assets[i]
+		if got.Path != want {
+			t.Errorf("assets[%d].Path = %q, want %q", i, got.Path, want)
+		}
+		if got.UUID != "" || got.AssetType != "" {
+			t.Errorf("assets[%d] should carry only Path, got %+v", i, got)
+		}
+	}
+
+	// Explicit: tagged so it routes to Explicit regardless of whether the
+	// value parses as a UUID.
+	if got := policy.Detail.Assets[2]; got.UUID != "some.explicit.asset" || got.AssetType != "asset" {
+		t.Errorf("explicit ref = %+v, want UUID=some.explicit.asset AssetType=asset", got)
+	}
+}
+
+const testAccConfigGateOverride = `
+provider "fianu" {}
+
+resource "fianu_gate" "security" {
+  path = "test.gate.security.override"
+  name = "Security Gate (Override)"
+
+  detail = {
+    full_name   = "Production Security Gate"
+    display_key = "PSEC3"
+
+    policy = {
+      variations = [
+        {
+          required_controls = ["a868c707-850a-474a-8e66-77a240de4305"]
+        },
+      ]
+      override = {
+        asset = {
+          types    = ["repository", "module"]
+          explicit = ["some.explicit.asset"]
+        }
+      }
+    }
+  }
+}
+`
+
 func protoV6Factories() map[string]func() (tfprotov6.ProviderServer, error) {
 	return map[string]func() (tfprotov6.ProviderServer, error){
 		"fianu": providerserver.NewProtocol6WithError(provider.New("test")()),

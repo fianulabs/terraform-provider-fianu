@@ -15,12 +15,14 @@ import (
 	"testing"
 
 	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
+	fianutesting "github.com/fianulabs/core/v2/external/db/types/fianu/testing/v1.0.0"
 	pkgvariables "github.com/fianulabs/core/v2/external/pkg/variables"
 	transportv1 "github.com/fianulabs/core/v2/external/transport/http/v1"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
+	"github.com/joshdk/go-junit"
 
 	"github.com/fianulabs/terraform-provider-fianu/internal/provider"
 )
@@ -228,10 +230,15 @@ func newConsoleStub(t *testing.T) *consoleStub {
 
 	// /entities/artifacts/test is what fianu_control_test.Invoke hits. The
 	// real server unpacks the entity, runs its rego rules against bundled
-	// input/data fixtures, and returns a JUnit-shaped report. The stub
-	// captures the entity and returns a single passing case so action_triggers
-	// tests can assert the action ran without tripping the action's failure
-	// diagnostic.
+	// input/data fixtures, and returns a report. The stub captures the entity
+	// and returns a single passing case so action_trigger tests can assert the
+	// action ran without tripping the action's failure diagnostic.
+	//
+	// The report is built from the server's own types (testing.TestReport is a
+	// junit.Suite) rather than a hand-written map. A hand-written fixture here
+	// previously encoded JUnit *XML* element names — testsuites/testcase —
+	// which the wire format never uses, and matched an action that parsed the
+	// same wrong keys, so the action counted zero cases and passed regardless.
 	mux.HandleFunc("/api/entities/artifacts/test", func(w http.ResponseWriter, r *http.Request) {
 		stub.testHits.Add(1)
 
@@ -242,20 +249,18 @@ func newConsoleStub(t *testing.T) *consoleStub {
 			name = entity.Name
 		}
 
+		report := fianutesting.NewTestReport(name, map[string]string{"path": path})
+		report.Suites = append(report.Suites, junit.Suite{
+			Name:  path + "-tests",
+			Tests: []junit.Test{{Name: "occ_case_1", Classname: "rule", Status: junit.StatusPassed}},
+		})
+		closed := report.Close()
+
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(transportv1.TestEntityFileResponse{
-			Path: path,
-			Name: name,
-			Report: map[string]any{
-				"testsuites": []map[string]any{
-					{
-						"name": "rule_test.rego",
-						"testcase": []map[string]any{
-							{"name": "occ_case_1", "classname": "rule"},
-						},
-					},
-				},
-			},
+			Path:   path,
+			Name:   name,
+			Report: &closed,
 		})
 	})
 

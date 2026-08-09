@@ -69,6 +69,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no deprecated field. No HCL change: `override` and `assets` keep working as
   before, and `override` still supersedes `assets` exactly as the server
   already treated them.
+- **`fianu_control_test` never reported a failure.** The action parsed the
+  report using JUnit *XML* element names — `testsuites`, `testcase`, `failure`
+  — but the server marshals Go structs from
+  `external/db/types/fianu/testing/v1.0.0` whose JSON keys are `suites`,
+  `tests` and `status`. Every key missed, so the action walked zero cases,
+  logged `0/0 cases passed` and exited clean no matter what the tests did.
+  Anyone who wired the action into a resource's `lifecycle.action_trigger`
+  had a test step that has been green since it was written.
+  The action now reads the real shape, counts cases nested under `suites[]`
+  *and* those on the report's own `tests[]` (the shape policy validation
+  returns), treats `status: "error"` as a failure rather than a pass, surfaces
+  the underlying cause from the case's `error` object, and fails when a report
+  contains no cases at all — a test step that runs nothing is not a pass.
 - `fianu_entity_pod` no longer rejects unknown `pod_type` values on import.
   The schema accepts any pod type on create — that is the point of the generic
   resource — but `ImportState` validated against the pinned SDK's enum, so a

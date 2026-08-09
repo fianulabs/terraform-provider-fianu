@@ -666,3 +666,129 @@ action "fianu_control_test" "bad" {
   }
 }
 `
+
+// TestAccFianuControl_Import proves the composite ID round-trips through
+// `terraform import`. controlModel.Detail is a value type, so ImportState has
+// to seed it before the post-import Read runs — this is the flagship resource
+// and the path had no coverage.
+func TestAccFianuControl_Import(t *testing.T) {
+	stub := newConsoleStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{Config: testAccConfigBasicControl},
+			{
+				Config:            testAccConfigBasicControl,
+				ResourceName:      "fianu_control.example",
+				ImportState:       true,
+				ImportStateId:     "control/test.control.basic",
+				ImportStateVerify: true,
+				// Read hydrates the envelope plus the ControlInfo trio; the
+				// richer sections stay user-authored.
+				ImportStateVerifyIgnore: []string{"detail"},
+			},
+		},
+	})
+}
+
+// TestAccFianuControl_ImportRejectsWrongType pins base.ParseID's type check. A
+// bare key is accepted for backward compatibility, but a wrong prefix must not
+// silently import a control from another entity's key.
+func TestAccFianuControl_ImportRejectsWrongType(t *testing.T) {
+	stub := newConsoleStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{Config: testAccConfigBasicControl},
+			{
+				Config:        testAccConfigBasicControl,
+				ResourceName:  "fianu_control.example",
+				ImportState:   true,
+				ImportStateId: "policy/test.control.basic",
+				ExpectError:   regexp.MustCompile(`invalid import id`),
+			},
+		},
+	})
+}
+
+// TestAccFianuControl_Update covers the second-apply path on the flagship
+// resource: the update reaches the server, the new values land on the wire, and
+// the control keeps its uuid so destroy can still archive it.
+//
+// The uuid assertion is the regression guard. A skipped deploy returns an empty
+// EntityID, and writing that into state makes Delete short-circuit on
+// uuid == "" — after which the control is never archived.
+func TestAccFianuControl_Update(t *testing.T) {
+	stub := newConsoleStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccConfigBasicControl,
+				Check:  resource.TestCheckResourceAttrSet("fianu_control.example", "uuid"),
+			},
+			{
+				Config: testAccConfigUpdatedControl,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fianu_control.example", "detail.display_key", "BTC2"),
+					resource.TestCheckResourceAttrSet("fianu_control.example", "uuid"),
+				),
+			},
+			// Re-apply the same config: the "skipped" deploy, the shape that
+			// used to blank the uuid across this resource family.
+			{
+				Config: testAccConfigUpdatedControl,
+				Check:  resource.TestCheckResourceAttrSet("fianu_control.example", "uuid"),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+		},
+	})
+
+	captured, _ := stub.capturedEntity.Load().(*fianu_entities.Control)
+	if captured == nil {
+		t.Fatal("expected the stub to have captured a deployed entity, got nil")
+	}
+	if captured.Detail.Control == nil || captured.Detail.Control.DisplayKey != "BTC2" {
+		t.Errorf("after update, detail.control = %+v", captured.Detail.Control)
+	}
+	if stub.deployHits.Load() < 2 {
+		t.Errorf("deploy hits = %d, want at least 2 — the update never reached the server", stub.deployHits.Load())
+	}
+	if got := stub.archiveHits.Load(); got == 0 {
+		t.Error("archive hits = 0 — destroy could not reach the entity")
+	}
+}
+
+const testAccConfigUpdatedControl = `
+provider "fianu" {}
+
+resource "fianu_control" "example" {
+  path = "test.control.basic"
+  name = "Basic Test Control"
+  detail = {
+    full_name   = "Basic Test Control"
+    display_key = "BTC2"
+    description = "Acceptance-test fixture, updated"
+  }
+}
+`

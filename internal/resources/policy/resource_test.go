@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -478,12 +479,44 @@ func protoV6Factories() map[string]func() (tfprotov6.ProviderServer, error) {
 //   - DELETE /api/entities/archive/policy/{uuid}      (Delete)
 //   - POST   /api/entities/artifacts/test             (unused by policy resource — included for symmetry)
 type policyStub struct {
-	server         *httptest.Server
-	deployHits     atomic.Int32
-	fetchHits      atomic.Int32
-	archiveHits    atomic.Int32
-	stored         atomic.Value // *transportv1.DeployEntityFileResponse
+	server      *httptest.Server
+	deployHits  atomic.Int32
+	fetchHits   atomic.Int32
+	archiveHits atomic.Int32
+
+	// stored and captured are keyed by entity type ("policy" /
+	// "policy_exception") so one config can hold both kinds without their
+	// idempotency gates or read payloads stepping on each other. Keeping a
+	// single slot made the two resources' content hashes collide and every
+	// second deploy came back "skipped".
+	stored   sync.Map // entityType -> *transportv1.DeployEntityFileResponse
+	captured sync.Map // entityType -> *fianu_entities.Policy
+
+	// capturedEntity is the most recently deployed entity of any type, for
+	// assertions that only exercise one resource.
 	capturedEntity atomic.Value // *fianu_entities.Policy
+
+	// archivedPaths records every DELETE path so tests can assert a resource
+	// archives through its own entity type's route.
+	archivedPaths sync.Map // url path -> true
+}
+
+// entityUUID is the deterministic UUID the stub hands back per entity type.
+func entityUUID(entityType string) string {
+	if entityType == "policy_exception" {
+		return "test-exception-uuid"
+	}
+	return "test-policy-uuid"
+}
+
+// capturedOfType returns the entity the stub last recorded for an entity type.
+func (s *policyStub) capturedOfType(entityType string) *fianu_entities.Policy {
+	v, ok := s.captured.Load(entityType)
+	if !ok {
+		return nil
+	}
+	p, _ := v.(*fianu_entities.Policy)
+	return p
 }
 
 func newPolicyStub(t *testing.T) *policyStub {
@@ -499,16 +532,21 @@ func newPolicyStub(t *testing.T) *policyStub {
 		if req.General.Path != nil {
 			path = *req.General.Path
 		}
+		entityType := "policy"
+		if req.General.EntityType != nil && *req.General.EntityType != "" {
+			entityType = *req.General.EntityType
+		}
 		entityName := ""
 		if entity != nil {
 			stub.capturedEntity.Store(entity)
+			stub.captured.Store(entityType, entity)
 			entityName = entity.Name
 		}
 
 		// Mirror the server's idempotency gate: a repeat deploy with the
 		// same content hash returns action="skipped".
 		action := "created"
-		if prior := stub.stored.Load(); prior != nil {
+		if prior, ok := stub.stored.Load(entityType); ok {
 			pr := prior.(*transportv1.DeployEntityFileResponse)
 			if pr.Metadata != nil && pr.Metadata.ContentHash == r.Header.Get("X-Fianu-CI-System-Hash") {
 				action = "skipped"
@@ -526,14 +564,14 @@ func newPolicyStub(t *testing.T) *policyStub {
 			Metadata: &transportv1.DeploymentMetadata{
 				Action:      action,
 				ContentHash: r.Header.Get("X-Fianu-CI-System-Hash"),
-				EntityID:    "test-policy-uuid",
+				EntityID:    entityUUID(entityType),
 				Path:        path,
 				Name:        respName,
 				Version:     "1",
-				EntityType:  "policy",
+				EntityType:  entityType,
 			},
 		}
-		stub.stored.Store(resp)
+		stub.stored.Store(entityType, resp)
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
@@ -541,29 +579,38 @@ func newPolicyStub(t *testing.T) *policyStub {
 
 	// Echo back the captured Policy as-deployed so Read doesn't drift
 	// against the user's HCL. Matches the shape FetchPolicy now returns.
-	mux.HandleFunc("/api/entities/policies/", func(w http.ResponseWriter, r *http.Request) {
-		stub.fetchHits.Add(1)
-		w.Header().Set("Content-Type", "application/json")
+	// Echo each entity type back only on its own route. The server reads
+	// policies and exceptions from separate partitions (executeFetch vs
+	// executeFetchException filter on entity type), so a stub that served both
+	// from one slot would hide the bug where a resource reads the wrong route.
+	readHandler := func(entityType string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			stub.fetchHits.Add(1)
+			w.Header().Set("Content-Type", "application/json")
 
-		captured, _ := stub.capturedEntity.Load().(*fianu_entities.Policy)
-		if captured == nil {
-			http.NotFound(w, r)
-			return
+			captured := stub.capturedOfType(entityType)
+			if captured == nil {
+				http.NotFound(w, r)
+				return
+			}
+
+			out := *captured
+			out.UUID = entityUUID(entityType)
+			out.StandardEntity.Type = db_vars.EntityType(entityType)
+			out.Version.Semantic = "1"
+			out.Version.UUID = "version-uuid"
+			out.Version.Status = "active"
+			out.Version.State = "published"
+			_ = json.NewEncoder(w).Encode(out)
 		}
-
-		out := *captured
-		out.UUID = "test-policy-uuid"
-		out.StandardEntity.Type = db_vars.EntityTypePolicy
-		out.Version.Semantic = "1"
-		out.Version.UUID = "version-uuid"
-		out.Version.Status = "active"
-		out.Version.State = "published"
-		_ = json.NewEncoder(w).Encode(out)
-	})
+	}
+	mux.HandleFunc("/api/entities/policies/", readHandler("policy"))
+	mux.HandleFunc("/api/entities/exceptions/", readHandler("policy_exception"))
 
 	mux.HandleFunc("/api/entities/archive/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodDelete {
 			stub.archiveHits.Add(1)
+			stub.archivedPaths.Store(r.URL.Path, true)
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"status":"archived"}`))
 			return

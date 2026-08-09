@@ -25,11 +25,16 @@ import (
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/control"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/entitypod"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/environment"
+	"github.com/fianulabs/terraform-provider-fianu/internal/resources/form"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/gate"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/index"
+	"github.com/fianulabs/terraform-provider-fianu/internal/resources/instance"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/notification"
+	"github.com/fianulabs/terraform-provider-fianu/internal/resources/platform"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/policy"
+	"github.com/fianulabs/terraform-provider-fianu/internal/resources/reporttemplate"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/target"
+	"github.com/fianulabs/terraform-provider-fianu/internal/resources/tool"
 )
 
 // Provider config env-var keys. Used as fallbacks when the matching HCL
@@ -192,11 +197,17 @@ func (p *fianuProvider) Resources(_ context.Context) []func() resource.Resource 
 		control.NewResource,
 		entitypod.NewResource,
 		environment.NewResource,
+		form.NewResource,
 		gate.NewResource,
 		index.NewResource,
+		instance.NewResource,
 		notification.NewResource,
 		policy.NewResource,
+		policy.NewExceptionResource,
+		reporttemplate.NewResource,
+		platform.NewResource,
 		target.NewResource,
+		tool.NewResource,
 	}
 }
 

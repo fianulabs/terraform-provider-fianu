@@ -1,7 +1,9 @@
 // Copyright (c) Fianu Labs, Inc. and contributors
 // SPDX-License-Identifier: MPL-2.0
 
-// Package policy implements the fianu_policy Terraform resource.
+// Package policy implements the fianu_policy and fianu_policy_exception
+// Terraform resources. Both are the same server-side entity under two entity
+// types — see kind.go for why that is two resources and not one attribute.
 //
 // A policy is the bridge between a control (which defines compliance evaluation
 // logic) and the assets it gets applied to. The resource shape mirrors the
@@ -11,7 +13,7 @@
 //	path: ...
 //	type: policy
 //	detail:
-//	  type: standard|exception|target
+//	  type: standard|target        # or `exception` via fianu_policy_exception
 //	  control:
 //	    path: ...
 //	  policy:                   # array of variations
@@ -39,7 +41,6 @@ import (
 
 	fianu "github.com/fianulabs/core/v2/external/db/types/fianu"
 	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
-	db_vars "github.com/fianulabs/core/v2/external/db/variables"
 	sdk "github.com/fianulabs/core/v2/external/pkg/sdk/v2"
 	transportv1 "github.com/fianulabs/core/v2/external/transport/http/v1"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -47,13 +48,12 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/base"
 )
-
-const entityType = "policy"
 
 // Compile-time interface checks.
 var (
@@ -64,13 +64,20 @@ var (
 	_ resource.ResourceWithValidateConfig = (*policyResource)(nil)
 )
 
-// NewResource is the factory the provider package registers.
+// NewResource is the factory the provider package registers for fianu_policy.
 func NewResource() resource.Resource {
-	return &policyResource{}
+	return &policyResource{kind: standardKind}
+}
+
+// NewExceptionResource is the factory the provider package registers for
+// fianu_policy_exception.
+func NewExceptionResource() resource.Resource {
+	return &policyResource{kind: exceptionKind}
 }
 
 type policyResource struct {
 	client *sdk.Client
+	kind   policyKind
 }
 
 // policyModel is the Terraform-side state. The envelope is shared via
@@ -85,7 +92,8 @@ type policyModel struct {
 // (expiration, justification, form) — those will be added in follow-up
 // minor versions once a customer needs them.
 type policyDetailModel struct {
-	// Type maps to General.Policy.Type — one of standard/exception/target.
+	// Type maps to Detail.Type. Legal values are kind-dependent — see
+	// policyKind.allowedPolicyTypes.
 	Type types.String `tfsdk:"type"`
 
 	// Control is the control this policy attaches to. Resolved server-side by
@@ -107,34 +115,24 @@ type policyControlModel struct {
 }
 
 func (r *policyResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_policy"
+	resp.TypeName = req.ProviderTypeName + "_" + r.kind.typeNameSuffix
 }
 
 func (r *policyResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	attrs := base.EnvelopeAttributes()
-	attrs["detail"] = detailAttribute()
+	attrs["detail"] = detailAttribute(r.kind)
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manages a Fianu compliance policy. Policies bind a control's evaluation logic to the asset scope it gets applied to, and let you parameterise the control via per-variation metric overrides.",
+		MarkdownDescription: r.kind.resourceDescription,
 		Attributes:          attrs,
 	}
 }
 
-func detailAttribute() schema.SingleNestedAttribute {
+func detailAttribute(k policyKind) schema.SingleNestedAttribute {
 	return schema.SingleNestedAttribute{
 		MarkdownDescription: "Policy payload — mirrors the spec.yaml structure used by `fianu console deploy`.",
 		Required:            true,
 		Attributes: map[string]schema.Attribute{
-			"type": schema.StringAttribute{
-				MarkdownDescription: "Policy type. One of `standard`, `exception`, `target`.",
-				Required:            true,
-				Validators: []validator.String{
-					stringvalidator.OneOf(
-						string(fianu_entities.PolicyTypeStandard),
-						string(fianu_entities.PolicyTypeException),
-						string(fianu_entities.PolicyTypeTarget),
-					),
-				},
-			},
+			"type": typeAttribute(k),
 			"control": schema.SingleNestedAttribute{
 				MarkdownDescription: "Reference to the control this policy applies. The control's evaluation logic runs against the assets in scope.",
 				Required:            true,
@@ -152,6 +150,25 @@ func detailAttribute() schema.SingleNestedAttribute {
 			"variations": variationsAttribute(),
 		},
 	}
+}
+
+// typeAttribute renders `detail.type` per kind. The exception kind has exactly
+// one legal value, so it is Optional+Computed with a default rather than
+// Required — writing `type = "exception"` on a fianu_policy_exception is pure
+// ceremony, but leaving the attribute out entirely would make the two kinds
+// need separate model structs for no gain.
+func typeAttribute(k policyKind) schema.StringAttribute {
+	attr := schema.StringAttribute{
+		MarkdownDescription: k.typeDescription,
+		Required:            k.defaultPolicyType == "",
+		Validators:          []validator.String{stringvalidator.OneOf(k.allowedPolicyTypes...)},
+	}
+	if k.defaultPolicyType != "" {
+		attr.Optional = true
+		attr.Computed = true
+		attr.Default = stringdefault.StaticString(k.defaultPolicyType)
+	}
+	return attr
 }
 
 func (r *policyResource) IdentitySchema(_ context.Context, _ resource.IdentitySchemaRequest, resp *resource.IdentitySchemaResponse) {
@@ -184,12 +201,12 @@ func (r *policyResource) Create(ctx context.Context, req resource.CreateRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	resp.Diagnostics.Append(hydrateFromDeployResponse(ctx, &plan, deployResp)...)
+	resp.Diagnostics.Append(hydrateFromDeployResponse(ctx, r.kind, &plan, deployResp)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
-	resp.Diagnostics.Append(resp.Identity.Set(ctx, makeIdentity(&plan))...)
+	resp.Diagnostics.Append(resp.Identity.Set(ctx, makeIdentity(r.kind, &plan))...)
 }
 
 func (r *policyResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -199,7 +216,7 @@ func (r *policyResource) Read(ctx context.Context, req resource.ReadRequest, res
 		return
 	}
 
-	fetched, err := r.client.FetchPolicy(ctx, state.Path.ValueString(), nil, nil)
+	fetched, err := r.kind.fetch(ctx, r.client, state.Path.ValueString())
 	if err != nil {
 		// Only a real 404 evicts state. Other errors (network, 5xx,
 		// transient auth) surface as a diagnostic so terraform apply doesn't
@@ -209,16 +226,16 @@ func (r *policyResource) Read(ctx context.Context, req resource.ReadRequest, res
 			resp.State.RemoveResource(ctx)
 			return
 		}
-		resp.Diagnostics.AddError("fetch policy failed", err.Error())
+		resp.Diagnostics.AddError("fetch "+r.kind.entityType+" failed", err.Error())
 		return
 	}
 
-	resp.Diagnostics.Append(hydrateFromPolicy(ctx, &state, fetched)...)
+	resp.Diagnostics.Append(hydrateFromPolicy(ctx, r.kind, &state, fetched)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
-	resp.Diagnostics.Append(resp.Identity.Set(ctx, makeIdentity(&state))...)
+	resp.Diagnostics.Append(resp.Identity.Set(ctx, makeIdentity(r.kind, &state))...)
 }
 
 func (r *policyResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
@@ -232,12 +249,12 @@ func (r *policyResource) Update(ctx context.Context, req resource.UpdateRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	resp.Diagnostics.Append(hydrateFromDeployResponse(ctx, &plan, deployResp)...)
+	resp.Diagnostics.Append(hydrateFromDeployResponse(ctx, r.kind, &plan, deployResp)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
-	resp.Diagnostics.Append(resp.Identity.Set(ctx, makeIdentity(&plan))...)
+	resp.Diagnostics.Append(resp.Identity.Set(ctx, makeIdentity(r.kind, &plan))...)
 }
 
 func (r *policyResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -251,24 +268,37 @@ func (r *policyResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	if uuid == "" {
 		return
 	}
-	if _, err := r.client.ArchivePolicy(ctx, uuid); err != nil {
+	if err := r.kind.archive(ctx, r.client, uuid); err != nil {
 		// 404 means it's already gone — happy path for destroy.
 		var apiErr *sdk.APIError
 		if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
 			return
 		}
-		resp.Diagnostics.AddError("archive policy failed", err.Error())
+		resp.Diagnostics.AddError("archive "+r.kind.entityType+" failed", err.Error())
 		return
 	}
 }
 
 func (r *policyResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	key, err := base.ParseID(req.ID, entityType)
+	key, err := base.ParseID(req.ID, r.kind.entityType)
 	if err != nil {
 		resp.Diagnostics.AddError("invalid import id", err.Error())
 		return
 	}
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("path"), key)...)
+	// Pre-populate the detail object so the subsequent Read's req.State.Get
+	// can decode without choking on a null nested object — policyModel.Detail
+	// is a value type, not a pointer, so the framework refuses to convert null
+	// into it. Same fix as the control resource. Read hydrates the envelope
+	// only; the detail sections come from the user's HCL on the next plan.
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("detail"), policyDetailModel{
+		Type: types.StringValue(r.kind.importedPolicyType()),
+		Control: policyControlModel{
+			Path:     types.StringNull(),
+			EntityID: types.StringNull(),
+		},
+		Variations: []variationModel{},
+	})...)
 }
 
 // ValidateConfig enforces the policy-level binding rule from the server's
@@ -315,9 +345,9 @@ func (r *policyResource) ValidateConfig(ctx context.Context, req resource.Valida
 // builds the General envelope, and POSTs to /api/entities/artifacts/deploy.
 func (r *policyResource) deployPolicy(ctx context.Context, plan policyModel) (*transportv1.DeployEntityFileResponse, diag.Diagnostics) {
 	var diags diag.Diagnostics
-	entity, err := buildEntity(plan)
+	entity, err := buildEntity(r.kind, plan)
 	if err != nil {
-		diags.AddError("invalid policy configuration", err.Error())
+		diags.AddError("invalid "+r.kind.entityType+" configuration", err.Error())
 		return nil, diags
 	}
 	entityJSON, err := json.Marshal(entity)
@@ -325,7 +355,7 @@ func (r *policyResource) deployPolicy(ctx context.Context, plan policyModel) (*t
 		diags.AddError("marshal entity failed", err.Error())
 		return nil, diags
 	}
-	entityTypeStr := string(db_vars.EntityTypePolicy)
+	entityTypeStr := string(r.kind.dbType)
 	path := plan.Path.ValueString()
 	deployReq := transportv1.DeployEntityFileRequest{
 		General: fianu.General{
@@ -335,7 +365,7 @@ func (r *policyResource) deployPolicy(ctx context.Context, plan policyModel) (*t
 	}
 	deployResp, err := r.client.DeployEntityFile(ctx, deployReq, entityJSON, false)
 	if err != nil {
-		diags.AddError("deploy policy failed", err.Error())
+		diags.AddError("deploy "+r.kind.entityType+" failed", err.Error())
 		return nil, diags
 	}
 	return deployResp, diags
@@ -355,11 +385,11 @@ func (r *policyResource) deployPolicy(ctx context.Context, plan policyModel) (*t
 // detail.assets[] and detail.override blocks were removed; the server
 // synthesizes Detail.Assets on read from the union of per-criteria asset
 // types for legacy display consumers.
-func buildEntity(plan policyModel) (*fianu_entities.Policy, error) {
+func buildEntity(k policyKind, plan policyModel) (*fianu_entities.Policy, error) {
 	p := &fianu_entities.Policy{}
 	p.Path = plan.Path.ValueString()
 	p.Name = plan.Name.ValueString()
-	p.StandardEntity.Type = db_vars.EntityTypePolicy
+	p.StandardEntity.Type = k.dbType
 
 	p.Detail.Type = fianu_entities.PolicyType(plan.Detail.Type.ValueString())
 	p.Detail.Control = fianu_entities.PolicyControlRef{
@@ -376,11 +406,11 @@ func buildEntity(plan policyModel) (*fianu_entities.Policy, error) {
 
 // hydrateFromDeployResponse populates envelope state from the metadata that
 // /entities/artifacts/deploy returns. Mirrors control's path.
-func hydrateFromDeployResponse(ctx context.Context, m *policyModel, resp *transportv1.DeployEntityFileResponse) diag.Diagnostics {
+func hydrateFromDeployResponse(ctx context.Context, k policyKind, m *policyModel, resp *transportv1.DeployEntityFileResponse) diag.Diagnostics {
 	if resp == nil || resp.Metadata == nil {
 		return nil
 	}
-	env := base.EnvelopeFromDeployMetadata(entityType, resp.Metadata, m.Path.ValueString(), m.Name.ValueString())
+	env := base.EnvelopeFromDeployMetadata(k.entityType, resp.Metadata, m.Path.ValueString(), m.Name.ValueString())
 	return m.Hydrate(ctx, env)
 }
 
@@ -392,11 +422,11 @@ func hydrateFromDeployResponse(ctx context.Context, m *policyModel, resp *transp
 //
 // Policy is StandardEntity[PolicyDetail] just like Control, so envelope
 // hydration is a direct reuse of base.EnvelopeFromStandardEntity.
-func hydrateFromPolicy(ctx context.Context, m *policyModel, p *fianu_entities.Policy) diag.Diagnostics {
+func hydrateFromPolicy(ctx context.Context, k policyKind, m *policyModel, p *fianu_entities.Policy) diag.Diagnostics {
 	if p == nil {
 		return nil
 	}
-	env := base.EnvelopeFromStandardEntity(entityType, &p.StandardEntity)
+	env := base.EnvelopeFromStandardEntity(k.entityType, &p.StandardEntity)
 	return m.Hydrate(ctx, env)
 }
 
@@ -406,9 +436,9 @@ type identityModel struct {
 	UUID       types.String `tfsdk:"uuid"`
 }
 
-func makeIdentity(m *policyModel) identityModel {
+func makeIdentity(k policyKind, m *policyModel) identityModel {
 	return identityModel{
-		EntityType: types.StringValue(entityType),
+		EntityType: types.StringValue(k.entityType),
 		EntityKey:  m.Path,
 		UUID:       m.UUID,
 	}

@@ -363,3 +363,7 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+// Local development against the sibling core checkout while the entity work
+// lands. Remove before release and pin a tagged core version.
+replace github.com/fianulabs/core/v2 => /Users/noahkreiger/Documents/fianulabs/core/core/.claude/worktrees/tf-entities

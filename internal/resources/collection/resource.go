@@ -211,6 +211,15 @@ func (r *collectionResource) ImportState(ctx context.Context, req resource.Impor
 		return
 	}
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("path"), key)...)
+	// Pre-populate detail so the post-import Read can decode: collectionModel's
+	// Detail is a value type and the framework refuses to convert null into it.
+	// Same fix as control, policy, tool, form and instance.
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("detail"), collectionDetailModel{
+		Description:              types.StringNull(),
+		Domain:                   types.StringNull(),
+		InheritDomainPermissions: types.BoolNull(),
+		Documentation:            []base.DocModel{},
+	})...)
 }
 
 func (r *collectionResource) applyPlan(ctx context.Context, plan *collectionModel) diag.Diagnostics {

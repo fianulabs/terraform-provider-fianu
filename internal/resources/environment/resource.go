@@ -210,6 +210,13 @@ func (r *environmentResource) ImportState(ctx context.Context, req resource.Impo
 		return
 	}
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("path"), key)...)
+	// Pre-populate detail so the post-import Read can decode: environmentModel's
+	// Detail is a value type and the framework refuses to convert null into it.
+	// Same fix as control, policy, tool, form and instance.
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("detail"), environmentDetailModel{
+		Description:   types.StringNull(),
+		Documentation: []base.DocModel{},
+	})...)
 }
 
 // applyPlan is the shared Create/Update body: deploy, then refetch so the

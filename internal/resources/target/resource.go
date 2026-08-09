@@ -280,6 +280,18 @@ func (r *targetResource) ImportState(ctx context.Context, req resource.ImportSta
 		return
 	}
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("path"), key)...)
+	// Pre-populate detail so the post-import Read can decode: targetModel's
+	// Detail is a value type and the framework refuses to convert null into it.
+	// Same fix as control, policy, tool, form and instance.
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("detail"), targetDetailModel{
+		Description:   types.StringNull(),
+		CloudProvider: types.StringNull(),
+		Type:          types.StringNull(),
+		Service:       types.StringNull(),
+		Region:        types.StringNull(),
+		Solution:      types.StringNull(),
+		Tags:          []types.String{},
+	})...)
 }
 
 func (r *targetResource) applyPlan(ctx context.Context, plan *targetModel) diag.Diagnostics {

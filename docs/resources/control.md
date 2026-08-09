@@ -64,6 +64,7 @@ Optional:
 - `policy_template` (Attributes) Policy template — the schema users author policies against. `measures` is the recursive measure tree. (see [below for nested schema](#nestedatt--detail--policy_template))
 - `relations` (Attributes List) Subscription relations — which domain/collection this control reads occurrences from, and which plugin produces them. (see [below for nested schema](#nestedatt--detail--relations))
 - `results` (Attributes) Default result outcomes when the rule emits each verdict. Maps directly to `entities.Results` (a server-side `map[string]bool`). (see [below for nested schema](#nestedatt--detail--results))
+- `template` (Attributes) Report template for this control — the `template` section of the on-disk package. Both JSON attributes are authored with `jsonencode({...})`; their shapes are owned by the reporting service, so they are passed through rather than modelled here. (see [below for nested schema](#nestedatt--detail--template))
 
 <a id="nestedatt--detail--assets"></a>
 ### Nested Schema for `detail.assets`
@@ -244,6 +245,19 @@ Optional:
 - `not_required` (Boolean)
 - `pass` (Boolean)
 - `warn` (Boolean)
+
+
+<a id="nestedatt--detail--template"></a>
+### Nested Schema for `detail.template`
+
+Required:
+
+- `template_content` (String) TemplateSpec object as JSON. Two modes: `{ mode = "wizard", ... }` for structured block instructions the backend compiles to a Go template, or `{ mode = "raw", ... }` for passthrough Go `html/template` source. Author with `jsonencode({...})`, or `jsondecode(file("..."))` re-encoded if the spec lives on disk.
+
+Optional:
+
+- `schema_snapshot` (String) Cached JSON Schema produced by running `report.py` against test fixtures, so the template editor does not re-execute it on every load. Optional — the server regenerates it when absent.
+- `template_name` (String) Optional human-readable label for the template.
 
 
 

@@ -35,11 +35,11 @@ import (
 	pkgvariables "github.com/fianulabs/core/v2/external/pkg/variables"
 	transportv1 "github.com/fianulabs/core/v2/external/transport/http/v1"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
-	"github.com/joshdk/go-junit"
 	"github.com/hashicorp/terraform-plugin-framework/action"
 	"github.com/hashicorp/terraform-plugin-framework/action/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/joshdk/go-junit"
 )
 
 // Compile-time interface checks.

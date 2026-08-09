@@ -706,3 +706,130 @@ func decodeDeployRequest(r *http.Request) (transportv1.DeployEntityFileRequest, 
 	}
 	return req, raw
 }
+
+// TestAccFianuGate_Import proves the composite ID round-trips through
+// `terraform import`. gateModel.Detail is a value type, so ImportState has to
+// seed it before the post-import Read runs — this pins the behaviour that
+// collection, environment and target were all missing.
+func TestAccFianuGate_Import(t *testing.T) {
+	stub := newGateStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{Config: testAccConfigMinimalGate},
+			{
+				Config:            testAccConfigMinimalGate,
+				ResourceName:      "fianu_gate.example",
+				ImportState:       true,
+				ImportStateId:     "gate/test.gate.basic",
+				ImportStateVerify: true,
+				// detail stays user-authored — Read hydrates the envelope plus
+				// the ControlInfo trio only.
+				ImportStateVerifyIgnore: []string{"detail"},
+			},
+		},
+	})
+}
+
+// TestAccFianuGate_Update covers the second-apply path on the most involved
+// applyPlan in the provider: a gate deploy, then an inline policy deploy, with
+// prior-state UUIDs carried across when the server answers "skipped" with a
+// sparse response.
+//
+// Both uuid assertions are regression guards. A skipped deploy returns an empty
+// EntityID, and writing that into state makes Delete short-circuit on
+// uuid == "" — the gate is then never archived, and neither is its policy.
+func TestAccFianuGate_Update(t *testing.T) {
+	stub := newGateStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccConfigGateWithPolicy,
+				Check:  resource.TestCheckResourceAttrSet("fianu_gate.security", "uuid"),
+			},
+			{
+				Config: testAccConfigGateUpdated,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fianu_gate.security", "detail.description", "Gates production and staging deployments."),
+					resource.TestCheckResourceAttrSet("fianu_gate.security", "uuid"),
+				),
+			},
+			// Re-apply the same config: the "skipped" deploy, the exact shape
+			// that used to blank the uuid on this resource family.
+			{
+				Config: testAccConfigGateUpdated,
+				Check:  resource.TestCheckResourceAttrSet("fianu_gate.security", "uuid"),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+		},
+	})
+
+	gate, _ := stub.capturedGate.Load().(*fianu_entities.Control)
+	if gate == nil {
+		t.Fatal("expected the stub to have captured a deployed gate entity, got nil")
+	}
+	if gate.Detail.Control == nil || gate.Detail.Control.Description == nil ||
+		*gate.Detail.Control.Description != "Gates production and staging deployments." {
+		t.Errorf("after update, detail.control.description = %+v", gate.Detail.Control)
+	}
+	// The inline policy must be redeployed alongside the gate, not left at its
+	// first-apply content.
+	if stub.capturedPolicy.Load() == nil {
+		t.Error("the inline policy was not redeployed with the gate")
+	}
+	if stub.deployHits.Load() < 4 {
+		t.Errorf("deploy hits = %d, want at least 4 (gate+policy, twice)", stub.deployHits.Load())
+	}
+	if got := stub.archiveHits.Load(); got == 0 {
+		t.Error("archive hits = 0 — destroy could not reach the entities")
+	}
+}
+
+const testAccConfigGateUpdated = `
+provider "fianu" {}
+
+resource "fianu_gate" "security" {
+  path = "test.gate.security"
+  name = "Security Gate"
+
+  detail = {
+    full_name   = "Production Security Gate"
+    display_key = "PSEC"
+    description = "Gates production and staging deployments."
+
+    config = {
+      scope = "commit"
+    }
+
+    environments = [
+      { path = "env.prod" },
+    ]
+
+    policy = {
+      variations = [
+        { required_controls = ["9919c495-4d74-40b0-a1b8-8e04910ad9ea"] },
+      ]
+      override = {
+        asset = {
+          types = ["repository"]
+        }
+      }
+    }
+  }
+}
+`

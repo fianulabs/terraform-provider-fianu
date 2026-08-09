@@ -361,3 +361,99 @@ func newPodStub(t *testing.T) *podStub {
 	stub.server = httptest.NewServer(mux)
 	return stub
 }
+
+// TestAccFianuNotification_Import proves the pod composite ID round-trips
+// through `terraform import`, including the default `config` key that the
+// schema fills in when the user omits it.
+func TestAccFianuNotification_Import(t *testing.T) {
+	stub := newPodStub(t)
+	defer stub.server.Close()
+	setEnv(t, stub)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{Config: testAccConfigNotificationMinimal},
+			{
+				Config:            testAccConfigNotificationMinimal,
+				ResourceName:      "fianu_notification.blocking",
+				ImportState:       true,
+				ImportStateId:     "gate-uuid-1/notification_blocking/config",
+				ImportStateVerify: true,
+				// Read confirms the pod exists; it does not hydrate the config,
+				// because the server canonicalises it on write (CEL in `rules`
+				// is compiled and rewritten into index references).
+				ImportStateVerifyIgnore: []string{"enabled", "urgency", "mode", "recipients", "channels", "rules"},
+			},
+		},
+	})
+}
+
+// TestAccFianuNotification_ImportRejectsNonNotificationPod pins the guard that
+// keeps a generic pod from being imported as a typed notification, where the
+// schema would then misrepresent its payload.
+func TestAccFianuNotification_ImportRejectsNonNotificationPod(t *testing.T) {
+	stub := newPodStub(t)
+	defer stub.server.Close()
+	setEnv(t, stub)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{Config: testAccConfigNotificationMinimal},
+			{
+				Config:        testAccConfigNotificationMinimal,
+				ResourceName:  "fianu_notification.blocking",
+				ImportState:   true,
+				ImportStateId: "gate-uuid-1/platforms_capabilities_data_exports_gating/gatingSource:jf-prod",
+				ExpectError:   regexp.MustCompile(`is not a notification pod type`),
+			},
+		},
+	})
+}
+
+// TestAccFianuNotification_Update covers the second-apply path. The pod PUT is
+// idempotent so Create and Update share a call; what this checks is that an
+// edited knob actually reaches the wire as a changed NotificationConfig, and
+// that the composite ID stays stable so a value edit is not a replace.
+func TestAccFianuNotification_Update(t *testing.T) {
+	stub := newPodStub(t)
+	defer stub.server.Close()
+	setEnv(t, stub)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccConfigNotificationMinimal,
+				Check:  resource.TestCheckResourceAttr("fianu_notification.blocking", "enabled", "true"),
+			},
+			{
+				Config: testAccConfigNotificationUpdated,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fianu_notification.blocking", "enabled", "false"),
+					resource.TestCheckResourceAttr("fianu_notification.blocking", "id",
+						"gate-uuid-1/notification_blocking/config"),
+				),
+			},
+		},
+	})
+
+	if got := stub.setHits.Load(); got < 2 {
+		t.Errorf("PUT hits = %d, want at least 2 — the update never reached the server", got)
+	}
+	cfg := stub.config(t, "gate-uuid-1", "notification_blocking", db_vars.NotificationConfigKey)
+	if cfg.Enabled {
+		t.Error("after update, config.Enabled = true, want false — the disable never reached the wire")
+	}
+}
+
+const testAccConfigNotificationUpdated = `
+provider "fianu" {}
+
+resource "fianu_notification" "blocking" {
+  entity_uuid = "gate-uuid-1"
+  type        = "notification_blocking"
+  enabled     = false
+}
+`

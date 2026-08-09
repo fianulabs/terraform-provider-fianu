@@ -7,6 +7,129 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-08
+
+### Changed
+
+- **BREAKING** — `fianu_gate`: `detail.pods` is replaced by `detail.gate`.
+  Fianu Console removed the `gate_check_rule` entity pod; gate rules are now
+  native to the gate entity (`entities.ControlDetail.Gate`), versioned with it
+  and written in the same deploy call instead of through separate pod API
+  round-trips. Each pod becomes an entry in `detail.gate.checks[]`, with the
+  pod's `key` becoming the check's `name`. See the migration section in
+  `README.md`.
+- **BREAKING** — `fianu_gate`: `detail.pod_keys` is removed from state. It
+  tracked the pod keys the provider had to reconcile; there are no pods to
+  reconcile any more.
+- `fianu_gate`: `detail.gate.checks[].completion_action` is now validated
+  against the server enum (`post_check_status`, `auto_approve_pr`).
+
+### Added
+
+- `fianu_environment` resource — named deployment stages, with a `matching` CEL
+  group deciding which deployment events belong to each. Completes the entity
+  roadmap alongside the two below.
+- `fianu_target` resource — concrete cloud deployment destinations bound to one
+  or more environments. `environments[]` accepts an environment path or UUID;
+  paths resolve server-side.
+- `fianu_collection` resource — groups controls under a domain. `detail.domain`
+  is the parent domain's entity UUID (domains remain Console-managed).
+- `fianu_notification` resource — manages a notification config pod on a control
+  or gate. Typed schema over all 13 notification buckets, with plan-time
+  validation of type, urgency, mode, recipients, and channels derived from the
+  SDK's registries rather than hardcoded. Its `rules` block is the same asset
+  matcher as `fianu_policy` variation criteria and `fianu_gate` check matching.
+- `fianu_entity_pod` resource — the generic form: attaches any pod type to any
+  entity with a `jsonencode`-authored `value`. Means new platform pod types work
+  without waiting on a provider release.
+- `fianu_gate`: `detail.gate.enabled` — the gate's master switch. Omitted means
+  off, matching the server default.
+- `fianu_gate`: `detail.gate.checks[].gating_sources` — deciding systems that
+  must all pass for the check to pass. Defaults to `["fianu"]`.
+
+- Bumped `github.com/fianulabs/core/v2` to `v2.21.20`, which carries the SDK
+  methods the three new entity resources need (`FetchEnvironment`,
+  `FetchTarget`, `FetchCollection` and their `Archive*` counterparts).
+
+### Fixed
+
+- Entity resources no longer lose their `uuid` when a deploy is skipped. The
+  server returns `action="skipped"` with an empty `EntityID` when the content
+  hash is unchanged; `base.Hydrate` wrote that empty value straight into state,
+  and every `Delete` short-circuits on `uuid == ""` — so the entity was never
+  archived. Reachable when a skipped deploy coincided with a failed refetch.
+  `Hydrate` now preserves a known UUID and only overwrites it when the server
+  supplies one, or when the prior value is null/unknown (Create).
+  Affected `fianu_policy`, `fianu_environment`, `fianu_target` and
+  `fianu_collection`; `fianu_gate` had a local guard against the same failure.
+- `fianu_gate` no longer writes the deprecated `PolicyAssetOverride` shape on
+  its inline policy. `detail.policy.override` now folds into `Detail.Assets`,
+  which the server expands back into the same override via
+  `buildOverrideFromAssets` before resolving scope — identical resolution,
+  no deprecated field. No HCL change: `override` and `assets` keep working as
+  before, and `override` still supersedes `assets` exactly as the server
+  already treated them.
+- **`fianu_control_test` never reported a failure.** The action parsed the
+  report using JUnit *XML* element names — `testsuites`, `testcase`, `failure`
+  — but the server marshals Go structs from
+  `external/db/types/fianu/testing/v1.0.0` whose JSON keys are `suites`,
+  `tests` and `status`. Every key missed, so the action walked zero cases,
+  logged `0/0 cases passed` and exited clean no matter what the tests did.
+  Anyone who wired the action into a resource's `lifecycle.action_trigger`
+  had a test step that has been green since it was written.
+  The action now reads the real shape, counts cases nested under `suites[]`
+  *and* those on the report's own `tests[]` (the shape policy validation
+  returns), treats `status: "error"` as a failure rather than a pass, surfaces
+  the underlying cause from the case's `error` object, and fails when a report
+  contains no cases at all — a test step that runs nothing is not a pass.
+- `fianu_entity_pod` no longer rejects unknown `pod_type` values on import.
+  The schema accepts any pod type on create — that is the point of the generic
+  resource — but `ImportState` validated against the pinned SDK's enum, so a
+  pod type newer than the provider's SDK could be created but not imported.
+
+## [0.2.3] - 2026-06-08
+
+### Added
+- Provider `token` now falls back to a token persisted by `fianu auth login`
+  at `~/.fianu/fianu.conf.v1` (override the directory with
+  `FIANU_CLI_HOME_DIR`), after `token` and `FIANU_TOKEN`. This is how the
+  GitHub OIDC / workload-identity-federation flow hands a token to the
+  provider with no static secrets. Documented retroactively — v0.2.3 shipped
+  without a changelog entry.
+
+## [0.2.2] - 2026-06-08
+
+### Added
+- Plan-time validation of `criteria` shape on `fianu_policy.detail.variations[*].criteria`,
+  `fianu_gate.detail.policy.variations[*].criteria`, and
+  `fianu_gate.detail.pods[*].matching[*]`. Catches the three error cases the
+  server's `PolicyAssetGroup.IsValid` rejects at apply time —
+  `expressions` + `indexes` both set, `expressions` without `asset.type`,
+  and an entirely empty criteria. Exact parity: the validator imports
+  `fianu_entities` and calls `(*PolicyAssetGroup).IsValid()` directly, so
+  the server's error message flows through verbatim and any future
+  rule changes in core are picked up automatically on SDK bump.
+  See `internal/resources/base/criteria_validator.go`.
+- Plan-time validation on `fianu_policy` that every variation carries
+  `criteria.asset.type`. `fianu_policy` has no top-level `assets`/`override`
+  attribute so the server's `allVariationsHaveCriteriaAsset` rule
+  (`policy.go::PolicyIsValid`) is the only path that satisfies the
+  policy-level binding check — including for indexes-only variations,
+  which the per-criteria validator alone doesn't reject.
+
+## [0.2.1] - 2026-06-08
+
+### Fixed
+- OIDC client-credentials token requests now include the `audience` form
+  parameter. Without it, Auth0 M2M clients whose tenant has no Default
+  Audience configured failed at provider init with
+  `access_denied: No audience parameter was provided, and no default audience
+  has been configured`. Default is `https://fianu.us.auth0.com/api/v2`
+  (the production Fianu API audience); override via the new `audience`
+  provider attribute or `FIANU_AUDIENCE` env var when running against a
+  private deployment. Plumbed through `sdk.WithOIDCAudience` (new in core
+  `external/pkg/sdk/v2` ≥ v2.16.108).
+
 ## [0.2.0] - 2026-06-08
 
 ### Changed (breaking)
@@ -113,6 +236,10 @@ Initial public release.
 - Three vendored production controls under `examples/resources/fianu_control/`
   (`sast_checkmarx`, `unit_tests_pytest`, `container_scan_wiz`).
 
-[Unreleased]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.2.3...v0.3.0
+[0.2.3]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.2.2...v0.2.3
+[0.2.2]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.1.31...v0.2.0
 [0.1.0]: https://github.com/fianulabs/terraform-provider-fianu/releases/tag/v0.1.0

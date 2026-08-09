@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -187,12 +186,12 @@ resource "fianu_gate" "security" {
 }
 `
 
-// TestAccFianuGate_WithPodsAndCriteria — the "every knob" gate. Identity,
-// inline policy with CEL criteria, two pipeline-automation pods (one
-// blanket-enforce, one with a scoped check-mode for staging). Asserts both
-// pod sets land on the stub, the second pod's matching scope carries its
-// own protection level, and re-plan is a no-op.
-func TestAccFianuGate_WithPodsAndCriteria(t *testing.T) {
+// TestAccFianuGate_WithChecksAndCriteria — the "every knob" gate. Identity,
+// inline policy with CEL criteria, two gate-native checks (one blanket-enforce,
+// one with a scoped check-mode for staging). Asserts both checks land on the
+// deployed entity at detail.gate.checks, the second check's matching scope
+// carries its own protection level, and re-plan is a no-op.
+func TestAccFianuGate_WithChecksAndCriteria(t *testing.T) {
 	stub := newGateStub(t)
 	defer stub.server.Close()
 
@@ -203,9 +202,9 @@ func TestAccFianuGate_WithPodsAndCriteria(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: protoV6Factories(),
 		Steps: []resource.TestStep{
-			{Config: testAccConfigGateWithPods},
+			{Config: testAccConfigGateWithChecks},
 			{
-				Config: testAccConfigGateWithPods,
+				Config: testAccConfigGateWithChecks,
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
 				},
@@ -213,23 +212,56 @@ func TestAccFianuGate_WithPodsAndCriteria(t *testing.T) {
 		},
 	})
 
-	if got := stub.podSetHits.Load(); got < 2 {
-		t.Errorf("expected at least 2 pod sets, got %d", got)
+	gate, _ := stub.capturedGate.Load().(*fianu_entities.Control)
+	if gate == nil {
+		t.Fatal("expected gate captured")
 	}
-	// Pod-key membership is asserted via the "ever-seen" map (not
-	// capturedPods, which gets drained when resource.Test runs its
-	// implicit destroy at end of the test case).
-	for _, key := range []string{"default", "staging-relaxed"} {
-		if _, ok := stub.podsEverSeen.Load(key); !ok {
-			t.Errorf("expected pod with key %q to have been deployed at some point", key)
-		}
+	cfg := gate.Detail.Gate
+	if cfg == nil {
+		t.Fatal("detail.gate is nil — gate-native check config never reached the wire")
 	}
-	if got := stub.podDeleteHits.Load(); got < 2 {
-		t.Errorf("expected the test framework's destroy step to detach both pods, got %d deletes", got)
+	if !cfg.IsEnabled() {
+		t.Error("detail.gate.enabled should be true")
+	}
+	if len(cfg.Checks) != 2 {
+		t.Fatalf("expected 2 checks, got %d", len(cfg.Checks))
+	}
+
+	blanket := cfg.Checks[0]
+	if blanket.Name != "default" {
+		t.Errorf("checks[0].name = %q, want %q", blanket.Name, "default")
+	}
+	if blanket.ProtectionLevel != fianu_entities.ProtectionLevelEnforce {
+		t.Errorf("checks[0].protectionLevel = %q, want enforce", blanket.ProtectionLevel)
+	}
+	if len(blanket.Matching) != 0 {
+		t.Errorf("checks[0] should match unconditionally, got %d scopes", len(blanket.Matching))
+	}
+	if want := []string{"fianu"}; len(blanket.GatingSources) != 1 || blanket.GatingSources[0] != want[0] {
+		t.Errorf("checks[0].gatingSources = %v, want %v", blanket.GatingSources, want)
+	}
+	if blanket.CompletionAction != fianu_entities.GateCompletionActionPostCheckStatus {
+		t.Errorf("checks[0].completionAction = %q, want post_check_status", blanket.CompletionAction)
+	}
+
+	scoped := cfg.Checks[1]
+	if scoped.Name != "staging-relaxed" {
+		t.Errorf("checks[1].name = %q, want %q", scoped.Name, "staging-relaxed")
+	}
+	if len(scoped.Matching) != 1 {
+		t.Fatalf("expected 1 matching scope on checks[1], got %d", len(scoped.Matching))
+	}
+	// The per-scope override is the whole point: the check defaults to
+	// enforce, but staging/preview repos drop to check-only.
+	if got := scoped.Matching[0].ProtectionLevel; got != fianu_entities.ProtectionLevelCheck {
+		t.Errorf("checks[1].matching[0].protectionLevel = %q, want check", got)
+	}
+	if len(scoped.Matching[0].Expressions) != 1 {
+		t.Fatalf("expected 1 expression on the scoped check, got %d", len(scoped.Matching[0].Expressions))
 	}
 }
 
-const testAccConfigGateWithPods = `
+const testAccConfigGateWithChecks = `
 provider "fianu" {}
 
 resource "fianu_gate" "security" {
@@ -244,6 +276,7 @@ resource "fianu_gate" "security" {
       variations = [
         {
           criteria = {
+            asset = { type = "repository" }
             expressions = [
               { expression = "asset.scm.repository startsWith 'prod-'" },
             ]
@@ -261,31 +294,37 @@ resource "fianu_gate" "security" {
       }
     }
 
-    pods = [
-      {
-        key              = "default"
-        protection_level = "enforce"
-      },
-      {
-        key              = "staging-relaxed"
-        protection_level = "enforce"
-        matching = [
-          {
-            protection_level = "check"
-            expressions = [
-              { expression = "asset.scm.repository startsWith 'staging-' || asset.scm.repository startsWith 'preview-'" },
-            ]
-          },
-        ]
-      },
-    ]
+    gate = {
+      enabled = true
+      checks = [
+        {
+          name              = "default"
+          protection_level  = "enforce"
+          gating_sources    = ["fianu"]
+          completion_action = "post_check_status"
+        },
+        {
+          name             = "staging-relaxed"
+          protection_level = "enforce"
+          matching = [
+            {
+              protection_level = "check"
+              asset            = { type = "repository" }
+              expressions = [
+                { expression = "asset.scm.repository startsWith 'staging-' || asset.scm.repository startsWith 'preview-'" },
+              ]
+            },
+          ]
+        },
+      ]
+    }
   }
 }
 `
 
 // TestAccFianuGate_CriteriaReferencesIndex verifies that gates can plumb the
 // canonical "criteria.indexes" reference shape through to the wire — both on
-// the inline policy's variation.criteria AND on pods[].matching scopes.
+// the inline policy's variation.criteria AND on gate.checks[].matching scopes.
 // Without the symmetric expansion (asset + indexes alongside expressions),
 // gates would force users to inline CEL even when a reusable fianu_index
 // already exists.
@@ -331,35 +370,25 @@ func TestAccFianuGate_CriteriaReferencesIndex(t *testing.T) {
 		t.Errorf("criteria.indexes[0].id should be empty (path-form), got %q", got)
 	}
 
-	// Pods[].matching also propagates indexes via the embedded
-	// PolicyAssetGroup. Pod wire shape is `{key, podType, value: <JSON>}`
-	// where the value carries the GateCheckRuleValue (protectionLevel +
-	// matching scopes). Drill into the value to confirm the index ref
-	// landed on the wire.
-	body, ok := stub.podsEverSeen.Load("scoped-by-index")
-	if !ok {
-		t.Fatal("expected pod 'scoped-by-index' to have been deployed")
+	// checks[].matching also propagates indexes via the embedded
+	// PolicyAssetGroup — a gate scoped by a reusable fianu_index instead of
+	// inline CEL. Assert it landed on the deployed entity.
+	gate, _ := stub.capturedGate.Load().(*fianu_entities.Control)
+	if gate == nil || gate.Detail.Gate == nil {
+		t.Fatal("expected gate with detail.gate captured")
 	}
-	pod, ok := body.(map[string]any)
-	if !ok {
-		t.Fatalf("pod body unexpected shape: %T", body)
+	if len(gate.Detail.Gate.Checks) != 1 {
+		t.Fatalf("expected 1 check, got %d", len(gate.Detail.Gate.Checks))
 	}
-	podValue, ok := pod["value"].(map[string]any)
-	if !ok {
-		t.Fatalf("pod.value unexpected shape: %T (pod=%+v)", pod["value"], pod)
+	matching := gate.Detail.Gate.Checks[0].Matching
+	if len(matching) != 1 {
+		t.Fatalf("check 'scoped-by-index' has no matching scopes: %+v", gate.Detail.Gate.Checks[0])
 	}
-	matching, ok := podValue["matching"].([]any)
-	if !ok || len(matching) == 0 {
-		t.Fatalf("pod 'scoped-by-index' has no matching scopes: %+v", podValue)
+	if len(matching[0].Indexes) != 1 {
+		t.Fatalf("check matching scope missing indexes ref: %+v", matching[0])
 	}
-	scope := matching[0].(map[string]any)
-	idxs, ok := scope["indexes"].([]any)
-	if !ok || len(idxs) != 1 {
-		t.Fatalf("pod matching scope missing indexes ref: %+v", scope)
-	}
-	idx := idxs[0].(map[string]any)
-	if idx["path"] != "compliance.indexes.staging_repos" {
-		t.Errorf("pod matching scope indexes[0].path = %v, want compliance.indexes.staging_repos", idx["path"])
+	if got := matching[0].Indexes[0].IndexPath; got != "compliance.indexes.staging_repos" {
+		t.Errorf("check matching scope indexes[0].path = %q, want compliance.indexes.staging_repos", got)
 	}
 }
 
@@ -392,20 +421,110 @@ resource "fianu_gate" "security" {
       }
     }
 
-    pods = [
-      {
-        key              = "scoped-by-index"
-        protection_level = "enforce"
-        matching = [
-          {
-            protection_level = "check"
-            indexes = [
-              { path = "compliance.indexes.staging_repos" },
-            ]
-          },
-        ]
-      },
-    ]
+    gate = {
+      enabled = true
+      checks = [
+        {
+          name             = "scoped-by-index"
+          protection_level = "enforce"
+          matching = [
+            {
+              protection_level = "check"
+              indexes = [
+                { path = "compliance.indexes.staging_repos" },
+              ]
+            },
+          ]
+        },
+      ]
+    }
+  }
+}
+`
+
+// TestAccFianuGate_OverrideLandsOnAssets pins the override -> Detail.Assets
+// mapping. The provider stopped writing the deprecated Detail.Override and
+// relies on the server deriving it from Detail.Assets
+// (buildOverrideFromAssets, core/pkg/policies/service.go). That only resolves
+// identically if each ref lands in the arm it used to: a bare Path goes to
+// Types, and an "asset"-tagged ref goes to Explicit verbatim — including for
+// entity keys that are not UUIDs.
+func TestAccFianuGate_OverrideLandsOnAssets(t *testing.T) {
+	stub := newGateStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{Config: testAccConfigGateOverride},
+			{
+				Config: testAccConfigGateOverride,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+		},
+	})
+
+	policy, _ := stub.capturedPolicy.Load().(*fianu_entities.Policy)
+	if policy == nil {
+		t.Fatal("expected policy captured")
+	}
+	// The deprecated field must stay unset — that is the whole point.
+	if policy.Detail.Override != nil { //nolint:staticcheck // asserting we do NOT write the deprecated field
+		t.Errorf("Detail.Override should not be written, got %+v", policy.Detail.Override) //nolint:staticcheck
+	}
+	if len(policy.Detail.Assets) != 3 {
+		t.Fatalf("expected 3 asset refs (2 types + 1 explicit), got %d: %+v", len(policy.Detail.Assets), policy.Detail.Assets)
+	}
+
+	// Types: Path set, no UUID and no AssetType, so buildOverrideFromAssets
+	// falls to its default arm and appends to Types.
+	for i, want := range []string{"repository", "module"} {
+		got := policy.Detail.Assets[i]
+		if got.Path != want {
+			t.Errorf("assets[%d].Path = %q, want %q", i, got.Path, want)
+		}
+		if got.UUID != "" || got.AssetType != "" {
+			t.Errorf("assets[%d] should carry only Path, got %+v", i, got)
+		}
+	}
+
+	// Explicit: tagged so it routes to Explicit regardless of whether the
+	// value parses as a UUID.
+	if got := policy.Detail.Assets[2]; got.UUID != "some.explicit.asset" || got.AssetType != "asset" {
+		t.Errorf("explicit ref = %+v, want UUID=some.explicit.asset AssetType=asset", got)
+	}
+}
+
+const testAccConfigGateOverride = `
+provider "fianu" {}
+
+resource "fianu_gate" "security" {
+  path = "test.gate.security.override"
+  name = "Security Gate (Override)"
+
+  detail = {
+    full_name   = "Production Security Gate"
+    display_key = "PSEC3"
+
+    policy = {
+      variations = [
+        {
+          required_controls = ["a868c707-850a-474a-8e66-77a240de4305"]
+        },
+      ]
+      override = {
+        asset = {
+          types    = ["repository", "module"]
+          explicit = ["some.explicit.asset"]
+        }
+      }
+    }
   }
 }
 `
@@ -425,14 +544,10 @@ type gateStub struct {
 	deployHits     atomic.Int32
 	fetchHits      atomic.Int32
 	archiveHits    atomic.Int32
-	podSetHits     atomic.Int32
-	podDeleteHits  atomic.Int32
 	storedGate     atomic.Value // *transportv1.DeployEntityFileResponse
 	storedPolicy   atomic.Value // *transportv1.DeployEntityFileResponse
 	capturedGate   atomic.Value // *fianu_entities.Control
 	capturedPolicy atomic.Value // *fianu_entities.Policy
-	capturedPods   sync.Map     // key (string) -> pod body (map[string]any). Drained when DELETE arrives.
-	podsEverSeen   sync.Map     // key (string) -> last-seen pod body (map[string]any). Add-only; never cleared on DELETE. Existing tests use `ok` only; richer tests can inspect the captured shape after the resource.Test destroy step drains capturedPods.
 }
 
 func newGateStub(t *testing.T) *gateStub {
@@ -556,34 +671,6 @@ func newGateStub(t *testing.T) *gateStub {
 			return
 		}
 		http.NotFound(w, r)
-	})
-
-	// Pod set/delete: PUT/DELETE /api/pods/entities/:entity_id/:type/:key
-	mux.HandleFunc("/api/pods/entities/", func(w http.ResponseWriter, r *http.Request) {
-		segments := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/pods/entities/"), "/")
-		if len(segments) < 3 {
-			http.NotFound(w, r)
-			return
-		}
-		key := segments[2]
-
-		switch r.Method {
-		case http.MethodPut, http.MethodPost:
-			stub.podSetHits.Add(1)
-			body, _ := io.ReadAll(r.Body)
-			var pod map[string]any
-			_ = json.Unmarshal(body, &pod)
-			stub.capturedPods.Store(key, pod)
-			stub.podsEverSeen.Store(key, pod)
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write(body)
-		case http.MethodDelete:
-			stub.podDeleteHits.Add(1)
-			stub.capturedPods.Delete(key)
-			w.WriteHeader(http.StatusOK)
-		default:
-			http.NotFound(w, r)
-		}
 	})
 
 	stub.server = httptest.NewServer(mux)

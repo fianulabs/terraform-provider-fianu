@@ -39,6 +39,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/action/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/joshdk/go-junit"
 )
 
 // Compile-time interface checks.
@@ -210,14 +211,10 @@ func buildTestEntity(cfg configModel, entityType db_vars.EntityType) *fianu_enti
 	return c
 }
 
-// emitTestReport walks the JUnit-shaped report the server returns and sends
-// one progress event per test case so the user sees per-case results
-// streaming as they arrive. If any case failed, surfaces a single error
+// emitTestReport walks the report the server returns and sends one progress
+// event per test case so the user sees per-case results streaming as they
+// arrive. If any case failed — or none ran at all — surfaces a single error
 // diagnostic at the end so the action exits non-zero.
-//
-// The server's report shape isn't strictly typed in transport (Report is
-// `any`) — we duck-type the JUnit fields we recognise (`testsuites`,
-// `tests`, `failures`, per-suite `testcase`s with `failure` children).
 func emitTestReport(testResp any, resp *action.InvokeResponse) {
 	// Marshal the response to JSON, then walk the parsed structure. This
 	// avoids importing transportv1 here and keeps the action's coupling to
@@ -228,68 +225,115 @@ func emitTestReport(testResp any, resp *action.InvokeResponse) {
 		return
 	}
 	var envelope struct {
-		Report   junitReport `json:"report"`
-		EntityID string      `json:"entityId"`
-		Path     string      `json:"path"`
-		Name     string      `json:"name"`
+		Report   junitSuite `json:"report"`
+		EntityID string     `json:"entityId"`
+		Path     string     `json:"path"`
+		Name     string     `json:"name"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		resp.Diagnostics.AddWarning("test report unparseable", err.Error())
 		return
 	}
 
-	totalCases, totalFailures := 0, 0
-	for _, suite := range envelope.Report.TestSuites {
-		for _, c := range suite.TestCases {
-			totalCases++
-			label := c.Name
-			if label == "" {
-				label = c.ClassName
-			}
-			if c.Failure != nil {
-				totalFailures++
-				resp.SendProgress(action.InvokeProgressEvent{
-					Message: fmt.Sprintf("✗ %s: %s", label, c.Failure.Message),
-				})
-				continue
-			}
+	cases := collectTests(envelope.Report, nil)
+	failures := 0
+	for _, c := range cases {
+		label := c.Name
+		if label == "" {
+			label = c.Classname
+		}
+		switch c.Status {
+		case junit.StatusPassed:
+			resp.SendProgress(action.InvokeProgressEvent{Message: fmt.Sprintf("✓ %s", label)})
+		case junit.StatusSkipped:
+			resp.SendProgress(action.InvokeProgressEvent{Message: fmt.Sprintf("⊘ %s (skipped): %s", label, c.detail())})
+		default:
+			// failed, error, and any status the server adds later. Defaulting
+			// unknown to "failed" keeps a test action that can't interpret its
+			// own report loud rather than green.
+			failures++
 			resp.SendProgress(action.InvokeProgressEvent{
-				Message: fmt.Sprintf("✓ %s", label),
+				Message: fmt.Sprintf("✗ %s [%s]: %s", label, c.Status, c.detail()),
 			})
 		}
 	}
 
+	if len(cases) == 0 {
+		resp.Diagnostics.AddError(
+			"no test cases ran",
+			fmt.Sprintf("Path: %s — the server returned a report with no test cases. "+
+				"The control package has no `rule_test` evaluation cases, or none of them were executed. "+
+				"A test action that runs nothing is reported as a failure rather than a pass.", envelope.Path),
+		)
+		return
+	}
+
 	resp.SendProgress(action.InvokeProgressEvent{
-		Message: fmt.Sprintf("%d/%d cases passed for %s", totalCases-totalFailures, totalCases, envelope.Path),
+		Message: fmt.Sprintf("%d/%d cases passed for %s", len(cases)-failures, len(cases), envelope.Path),
 	})
 
-	if totalFailures > 0 {
+	if failures > 0 {
 		resp.Diagnostics.AddError(
-			fmt.Sprintf("%d/%d test cases failed", totalFailures, totalCases),
+			fmt.Sprintf("%d/%d test cases failed", failures, len(cases)),
 			fmt.Sprintf("Path: %s — see progress events above for per-case detail.", envelope.Path),
 		)
 	}
 }
 
-// junitReport mirrors the JUnit XML shape Fianu's tester emits as JSON.
-// We parse only the fields we render; extra fields the server adds in the
-// future are ignored without breaking compatibility.
-type junitReport struct {
-	TestSuites []junitSuite `json:"testsuites"`
+// collectTests flattens a report into its test cases.
+//
+// The server nests one level today (`report.suites[].tests[]` from
+// ControlTester, `report.tests[]` from PolicyTester), but both levels carry
+// cases and nothing guarantees the depth stays at one, so recurse.
+func collectTests(s junitSuite, out []junitTest) []junitTest {
+	out = append(out, s.Tests...)
+	for _, sub := range s.Suites {
+		out = collectTests(sub, out)
+	}
+	return out
 }
 
+// junitSuite mirrors the wire shape of the server's report: `testing.TestReport`
+// (external/db/types/fianu/testing/v1.0.0), which is a `junit.Suite` from
+// github.com/joshdk/go-junit. The top-level `report` object is itself a suite.
+//
+// These are hand-declared rather than reusing junit.Suite because junit.Test
+// types its `error` field as the `error` interface, which json.Unmarshal
+// cannot populate — decoding a failed case into the upstream type errors out.
+// The status constants are imported from upstream, though; they are the part
+// that silently inverts results if it drifts.
 type junitSuite struct {
-	Name      string      `json:"name"`
-	TestCases []junitCase `json:"testcase"`
+	Name   string       `json:"name"`
+	Tests  []junitTest  `json:"tests"`
+	Suites []junitSuite `json:"suites"`
 }
 
-type junitCase struct {
-	Name      string        `json:"name"`
-	ClassName string        `json:"classname"`
-	Failure   *junitFailure `json:"failure,omitempty"`
+type junitTest struct {
+	Name      string       `json:"name"`
+	Classname string       `json:"classname"`
+	Status    junit.Status `json:"status"`
+	Message   string       `json:"message"`
+	Error     *junitError  `json:"error"`
 }
 
-type junitFailure struct {
+type junitError struct {
 	Message string `json:"message"`
-	Text    string `json:"text,omitempty"`
+	Type    string `json:"type"`
+}
+
+// detail is the most specific failure text available. Message is the
+// human-facing summary; Error.Message carries the underlying cause and is
+// only set on failed/error cases.
+func (t junitTest) detail() string {
+	switch {
+	case t.Error != nil && t.Error.Message != "" && t.Error.Message != t.Message:
+		if t.Message == "" {
+			return t.Error.Message
+		}
+		return fmt.Sprintf("%s (%s)", t.Message, t.Error.Message)
+	case t.Message != "":
+		return t.Message
+	default:
+		return "no detail reported"
+	}
 }

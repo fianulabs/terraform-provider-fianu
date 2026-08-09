@@ -124,7 +124,11 @@ func (r *indexResource) Read(ctx context.Context, req resource.ReadRequest, resp
 		return
 	}
 
-	result, err := r.client.GetIndex(ctx, state.Path.ValueString(), nil)
+	// All three filters (includeArchived, status, includeRejected) stay nil:
+	// Read wants the index exactly as the tenant sees it by default. Passing a
+	// status filter here would make a rejected or archived index read as a 404
+	// and silently evict it from state.
+	result, err := r.client.GetIndex(ctx, state.Path.ValueString(), nil, nil, nil)
 	if err != nil {
 		var apiErr *sdk.APIError
 		if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {

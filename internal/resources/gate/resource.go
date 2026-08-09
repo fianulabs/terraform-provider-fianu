@@ -100,21 +100,14 @@ type gateDetailModel struct {
 	// the gate is deployed without an attached policy.
 	Policy *gatePolicyModel `tfsdk:"policy"`
 
-	// Pods is the list of pipeline automation rules attached to this gate
-	// (server-side: `pod_type = "gate_check_rule"` rows scoped to the
-	// gate's entity_id). Each pod's `Value` is a `GateCheckRuleValue` JSON
-	// blob set via SetEntityPod.
-	Pods []podModel `tfsdk:"pods"`
+	// Gate is the gate-native check configuration, marshalled into
+	// `entities.ControlDetail.Gate` and versioned with the gate. Replaces
+	// the removed `gate_check_rule` entity pods — see checks.go.
+	Gate *gateConfigModel `tfsdk:"gate"`
 
 	// PolicyUUID is the computed UUID of the deployed policy entity (when
 	// `policy` is set). Tracked so Delete can archive the policy by UUID.
 	PolicyUUID types.String `tfsdk:"policy_uuid"`
-
-	// PodKeys is the computed list of pod keys currently deployed against
-	// this gate. Used at Update time to compute add/update/delete diffs
-	// against the incoming Pods plan, and at Delete time to know which
-	// pods to detach before archiving the gate.
-	PodKeys types.List `tfsdk:"pod_keys"`
 }
 
 type configModel struct {
@@ -142,9 +135,9 @@ type gatePolicyModel struct {
 	Override   *overrideModel   `tfsdk:"override"`
 
 	// Assets is the list of abstract asset-type paths the policy applies
-	// to. Required by the server validator unless override is supplied;
-	// the provider auto-derives this from override.asset.types when only
-	// override is set.
+	// to. Required by the server validator unless Override is supplied —
+	// an Override supersedes this list entirely, which is how the server
+	// already treated the two (it read Override and ignored Assets).
 	Assets []types.String `tfsdk:"assets"`
 }
 
@@ -209,24 +202,18 @@ func detailAttribute() schema.SingleNestedAttribute {
 					"variations": variationsAttribute(),
 					"override":   overrideAttribute(),
 					"assets": schema.ListAttribute{
-						MarkdownDescription: "Abstract asset-type paths the policy applies to (e.g., `[\"repository\"]`). Required unless `override.asset.types` is set — when only override is supplied, the provider auto-derives this list from it.",
+						MarkdownDescription: "Abstract asset-type paths the policy applies to (e.g., `[\"repository\"]`). Required unless `override` is set — an `override` block supersedes this list entirely, matching how the server resolved the two before.",
 						Optional:            true,
 						ElementType:         types.StringType,
 					},
 				},
 			},
 
-			"pods": podsAttribute(),
+			"gate": gateConfigAttribute(),
 
 			"policy_uuid": schema.StringAttribute{
 				MarkdownDescription: "Computed UUID of the deployed policy entity (when `policy` is set). Tracked in state so Delete can archive the policy by UUID.",
 				Computed:            true,
-			},
-
-			"pod_keys": schema.ListAttribute{
-				MarkdownDescription: "Computed list of pod keys currently deployed against this gate. Used by the provider to compute add/update/delete diffs across applies.",
-				Computed:            true,
-				ElementType:         types.StringType,
 			},
 		},
 	}
@@ -333,24 +320,7 @@ func (r *gateResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 		return
 	}
 
-	// Detach pods first — the gate's UUID is still resolvable here and pods
-	// scope by entity_id. 404s on individual pods are fine (already gone).
-	if gateUUID := state.UUID.ValueString(); gateUUID != "" && !state.Detail.PodKeys.IsNull() && !state.Detail.PodKeys.IsUnknown() {
-		var keys []string
-		if d := state.Detail.PodKeys.ElementsAs(ctx, &keys, false); !d.HasError() {
-			for _, k := range keys {
-				if err := r.client.DeleteEntityPod(ctx, gateUUID, podType, k); err != nil {
-					var apiErr *sdk.APIError
-					if !errors.As(err, &apiErr) || apiErr.Status != http.StatusNotFound {
-						resp.Diagnostics.AddError("delete gate pod failed", fmt.Sprintf("key=%q: %s", k, err.Error()))
-						return
-					}
-				}
-			}
-		}
-	}
-
-	// Archive the attached policy next (if any) so the gate stops gating
+	// Archive the attached policy first (if any) so the gate stops gating
 	// deployments before it disappears.
 	if uuid := state.Detail.PolicyUUID.ValueString(); uuid != "" {
 		if _, err := r.client.ArchivePolicy(ctx, uuid); err != nil {
@@ -386,7 +356,6 @@ func (r *gateResource) ImportState(ctx context.Context, req resource.ImportState
 		DisplayKey:  types.StringNull(),
 		Description: types.StringNull(),
 		PolicyUUID:  types.StringNull(),
-		PodKeys:     types.ListNull(types.StringType),
 	})...)
 }
 
@@ -433,67 +402,6 @@ func (r *gateResource) applyPlan(ctx context.Context, plan *gateModel, prior *ga
 		plan.Detail.PolicyUUID = types.StringNull()
 	}
 
-	// Reconcile pods against the prior state. Strategy: upsert every pod in
-	// the plan via SetEntityPod (idempotent for the same key), then delete
-	// any pods that were in prior state but no longer in the plan.
-	diags.Append(r.reconcilePods(ctx, plan, prior)...)
-	return diags
-}
-
-// reconcilePods upserts every pod in plan.Detail.Pods on the gate, then
-// deletes any pod keys that were in prior state but absent from the plan.
-// Pods are per-gate, scoped server-side by (entity_id, pod_type, key).
-func (r *gateResource) reconcilePods(ctx context.Context, plan *gateModel, prior *gateModel) diag.Diagnostics {
-	var diags diag.Diagnostics
-	gateUUID := plan.UUID.ValueString()
-	if gateUUID == "" {
-		// No gate UUID yet (e.g., first apply that failed to hydrate).
-		// Skip pod work — the next apply will reconcile.
-		plan.Detail.PodKeys = types.ListNull(types.StringType)
-		return diags
-	}
-
-	desiredKeys := make(map[string]struct{}, len(plan.Detail.Pods))
-	for _, p := range plan.Detail.Pods {
-		pod, err := buildPod(p)
-		if err != nil {
-			diags.AddError("build gate pod failed", err.Error())
-			return diags
-		}
-		if _, err := r.client.SetEntityPod(ctx, gateUUID, podType, pod.Key, pod); err != nil {
-			diags.AddError("set gate pod failed", fmt.Sprintf("key=%q: %s", pod.Key, err.Error()))
-			return diags
-		}
-		desiredKeys[pod.Key] = struct{}{}
-	}
-
-	// Delete pods that were in prior state but no longer in plan.
-	if prior != nil && !prior.Detail.PodKeys.IsNull() && !prior.Detail.PodKeys.IsUnknown() {
-		var priorKeys []string
-		if d := prior.Detail.PodKeys.ElementsAs(ctx, &priorKeys, false); !d.HasError() {
-			for _, k := range priorKeys {
-				if _, keep := desiredKeys[k]; keep {
-					continue
-				}
-				if err := r.client.DeleteEntityPod(ctx, gateUUID, podType, k); err != nil {
-					var apiErr *sdk.APIError
-					if !errors.As(err, &apiErr) || apiErr.Status != http.StatusNotFound {
-						diags.AddError("delete removed gate pod failed", fmt.Sprintf("key=%q: %s", k, err.Error()))
-						return diags
-					}
-				}
-			}
-		}
-	}
-
-	// Record the new key list in computed state.
-	keys := make([]string, 0, len(desiredKeys))
-	for k := range desiredKeys {
-		keys = append(keys, k)
-	}
-	listVal, listDiags := types.ListValueFrom(ctx, types.StringType, keys)
-	diags.Append(listDiags...)
-	plan.Detail.PodKeys = listVal
 	return diags
 }
 
@@ -585,6 +493,7 @@ func buildGateEntity(plan gateModel) *fianu_entities.Control {
 		}
 	}
 	c.Detail.Environments = buildEnvironments(plan.Detail.Environments)
+	c.Detail.Gate = buildGateConfig(plan.Detail.Gate)
 	return c
 }
 
@@ -632,24 +541,26 @@ func (r *gateResource) buildGatePolicyEntity(ctx context.Context, plan *gateMode
 		return nil, vDiags
 	}
 	p.Detail.Variations = variations
-	if policy.Override != nil {
-		p.Detail.Override = policy.Override.toEntity()
-	}
 
-	// Detail.Assets is required by the server validator. Prefer the
-	// explicit assets list; fall back to override.asset.types when only
-	// override is set.
-	assets := policy.Assets
-	if len(assets) == 0 && policy.Override != nil {
-		assets = policy.Override.Asset.Types
-	}
-	for _, typePath := range assets {
-		if typePath.IsNull() || typePath.IsUnknown() || typePath.ValueString() == "" {
-			continue
+	// Detail.Assets carries the whole asset scope; Detail.Override is never
+	// written. The two are equivalent — when Override is nil the server
+	// derives it from Assets via buildOverrideFromAssets before resolving
+	// scope (core/pkg/policies/service.go) — and Override is deprecated.
+	//
+	// Precedence matches what the server actually honoured before: with an
+	// override set, resolvePolicy read Override and ignored Assets entirely,
+	// so override wins here too rather than merging the two.
+	if policy.Override != nil {
+		p.Detail.Assets = policy.Override.toAssetRefs()
+	} else {
+		for _, typePath := range policy.Assets {
+			if typePath.IsNull() || typePath.IsUnknown() || typePath.ValueString() == "" {
+				continue
+			}
+			p.Detail.Assets = append(p.Detail.Assets, fianu_entities.PolicyAssetRef{
+				Path: typePath.ValueString(),
+			})
 		}
-		p.Detail.Assets = append(p.Detail.Assets, fianu_entities.PolicyAssetRef{
-			Path: typePath.ValueString(),
-		})
 	}
 	return p, nil
 }

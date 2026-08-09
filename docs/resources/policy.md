@@ -95,7 +95,7 @@ Required:
 
 Optional:
 
-- `criteria` (Attributes) Asset group criteria. Restricts this variation to assets matching either a set of CEL expressions or one or more existing indexes. When omitted, the variation applies to every asset in the policy's scope. (see [below for nested schema](#nestedatt--detail--variations--criteria))
+- `criteria` (Attributes) Asset group criteria. Restricts this to assets matching either a set of CEL expressions or one or more existing indexes. When omitted, it applies to every asset in the policy's scope. (see [below for nested schema](#nestedatt--detail--variations--criteria))
 - `effect` (String) What this variation does. `apply` runs the control with the supplied metric overrides; `exempt` skips evaluation entirely for matching assets. Defaults to `apply` when omitted (server-side default).
 - `locked` (Boolean) When true, prevents downstream tenants from overriding this variation. Defaults to false.
 - `priority` (Number) Evaluation priority. Lower numbers run first. Defaults to 0 when omitted.
@@ -105,10 +105,10 @@ Optional:
 
 Optional:
 
-- `asset` (Attributes) Per-criteria asset binding. Required when `expressions` are supplied OR when the criteria is unscoped (no expressions and no indexes). Omit when `indexes` is set — the linked index already carries the asset type. (see [below for nested schema](#nestedatt--detail--variations--criteria--asset))
+- `asset` (Attributes) Asset binding. Required when `expressions` are supplied OR when the scope is unscoped (no expressions and no indexes). Omit when `indexes` is set — the linked index already carries the asset type. (see [below for nested schema](#nestedatt--detail--variations--criteria--asset))
 - `combine_with` (String) How the expressions combine. `AND` (all must match) or `OR` (any may match). Defaults to `AND`.
 - `description` (String) Optional description of the criteria.
-- `expressions` (Attributes List) CEL expressions evaluated per-asset. Uses Fianu's CEL dialect — combine clauses inside a single expression with `&&`/`||`; multiple list entries are only needed when mixing OR semantics across separate predicates via `combine_with`. Mutually exclusive with `indexes`. (see [below for nested schema](#nestedatt--detail--variations--criteria--expressions))
+- `expressions` (Attributes List) CEL expressions evaluated per-asset. Uses Fianu's CEL dialect — combine clauses inside a single expression with `&&`/`||`; multiple list entries are only needed when mixing OR semantics across separate predicates. Mutually exclusive with `indexes`. (see [below for nested schema](#nestedatt--detail--variations--criteria--expressions))
 - `indexes` (Attributes List) References to existing indexes (by id or path). Mutually exclusive with `expressions` and `asset` — the linked index already carries asset type and CEL. (see [below for nested schema](#nestedatt--detail--variations--criteria--indexes))
 - `name` (String) Optional human-readable name for the asset group.
 

@@ -304,3 +304,102 @@ func decodeDeployRequest(r *http.Request) (transportv1.DeployEntityFileRequest, 
 	}
 	return req, raw
 }
+
+// TestAccFianuTarget_Import proves the composite ID round-trips through
+// `terraform import`. targetModel.Detail is a value type, so ImportState has to
+// seed it — the framework cannot convert null into a non-pointer struct and the
+// post-import Read fails before it starts.
+func TestAccFianuTarget_Import(t *testing.T) {
+	stub := newTargetStub(t)
+	defer stub.server.Close()
+	setEnv(t, stub)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{Config: testAccConfigTargetMinimal},
+			{
+				Config:            testAccConfigTargetMinimal,
+				ResourceName:      "fianu_target.eks",
+				ImportState:       true,
+				ImportStateId:     "target/test.target.eks_prod",
+				ImportStateVerify: true,
+				// detail and environments stay user-authored — Read hydrates the
+				// envelope only, and the server resolves environment refs to
+				// UUIDs.
+				ImportStateVerifyIgnore: []string{"detail", "environments"},
+			},
+		},
+	})
+}
+
+// TestAccFianuTarget_Update covers the second-apply path: the update reaches
+// the server, the new values land on the wire, and the resource keeps its uuid
+// so destroy can still archive it.
+//
+// The uuid assertion is the regression guard. The server returns an empty
+// EntityID with action="skipped" when content is unchanged; Hydrate used to
+// write that empty value into state, after which Delete short-circuits on
+// uuid == "" and the target is never archived. Fixed in 0.3.0 — fianu_target
+// was one of the named resources, and nothing tested it.
+func TestAccFianuTarget_Update(t *testing.T) {
+	stub := newTargetStub(t)
+	defer stub.server.Close()
+	setEnv(t, stub)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccConfigTargetMinimal,
+				Check:  resource.TestCheckResourceAttrSet("fianu_target.eks", "uuid"),
+			},
+			{
+				Config: testAccConfigTargetUpdated,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fianu_target.eks", "detail.region", "us-west-2"),
+					resource.TestCheckResourceAttrSet("fianu_target.eks", "uuid"),
+				),
+			},
+			// Re-apply the same config: the "skipped" deploy, which is the
+			// exact shape that used to blank the uuid.
+			{
+				Config: testAccConfigTargetUpdated,
+				Check:  resource.TestCheckResourceAttrSet("fianu_target.eks", "uuid"),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+		},
+	})
+
+	got := stub.captured(t)
+	if got.Detail.Region != "us-west-2" {
+		t.Errorf("after update, region = %q", got.Detail.Region)
+	}
+	if stub.deployHits.Load() < 2 {
+		t.Errorf("deploy hits = %d, want at least 2 — the update never reached the server", stub.deployHits.Load())
+	}
+	if got := stub.archiveHits.Load(); got != 1 {
+		t.Errorf("archive hits = %d, want 1 — destroy could not reach the entity", got)
+	}
+}
+
+const testAccConfigTargetUpdated = `
+provider "fianu" {}
+
+resource "fianu_target" "eks" {
+  path = "test.target.eks_prod"
+  name = "EKS Production"
+
+  detail = {
+    cloud_provider = "AWS"
+    type           = "kubernetes"
+    region         = "us-west-2"
+  }
+
+  environments = [
+    { environment = "test.env.prod" },
+  ]
+}
+`

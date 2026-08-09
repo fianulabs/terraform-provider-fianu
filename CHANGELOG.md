@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `fianu_tool` resource — an integration that produces the evidence controls
+  evaluate. `sources.produces` is what makes a tool's output addressable by a
+  control's evaluation input; the server rejects a `consumes` edge with no
+  matching active producer.
+- `fianu_platform` resource — the integration product instances connect to,
+  carrying the operational contract every instance inherits: endpoint defaults,
+  health probes, credential rotation, error semantics and audit policy. Enum
+  attributes are validated against the server's own constants rather than
+  hardcoded lists. `capabilities` (a Fianu-owned catalog) and `instances` (a
+  computed count) are deliberately not in the schema. Platform types remain
+  Console-managed; reference one by UUID, as `fianu_collection` does for
+  domains.
+
+- `fianu_report_template` resource — the layout that composes control
+  templates into a full report. `layout_config` is a `jsonencode`-authored JSON
+  object, validated at plan time. The entity type on the wire is `template`, so
+  the resource `id` and import prefix are `template/<key>`, not
+  `report_template/<key>`.
+
+- `fianu_instance` resource — a configured, reachable deployment of a platform.
+  `detail.domains` carries the endpoints inline: a domain has no identity
+  outside the instance version that declares it, so it is not a child entity
+  and does not appear in the entity graph. Domain uuids are server-assigned per
+  version and are not settable. Credentials are deliberately out of scope —
+  they are secrets with their own rotation lifecycle and their own endpoints,
+  and an entity version is the wrong place for either.
+
+- `fianu_form` resource — the reusable questionnaire definition an attestation
+  presents. Element `options` are `jsonencode`-authored and validated at plan
+  time; `type` is restricted to the five element kinds the server can actually
+  build (`dropdown` is in the SQL enum but has no implementation). Element
+  order is meaningful — the server derives each element's `code` from its
+  position and binds submitted answers to that code. Forms deployed through
+  Terraform are published/active: the deployer defaults an unspecified form to
+  draft/inactive to match the console's create endpoint, but the form read
+  filters to active, so a draft would 404 on its own next refresh.
+
+- `fianu_policy_exception` resource — a policy exception, the narrower waiver
+  that overrides a standard policy for the assets its criteria match. Same
+  shape as `fianu_policy` (same control binding, same variations); `detail.type`
+  is optional and defaults to `exception`. Server-side an exception is the same
+  `entities.Policy` handled by the same deployer, but it is stored and read as
+  its own entity type, so it is its own resource with its own composite ID
+  (`policy_exception/<key>`) and its own read/archive routes.
+
+- `fianu_control`: `detail.template` — the report template section of the
+  on-disk control package. `template_content` (a TemplateSpec, wizard or raw
+  mode) and `schema_snapshot` are `jsonencode`-authored passthroughs validated
+  at plan time; their shapes are owned by the reporting service, so modelling
+  them in HCL would pin a schema this provider does not own. Omitting the block
+  sends no template at all rather than an empty one, because the server applies
+  the section only when it is present.
+
+### Changed
+
+- **BREAKING** — `fianu_policy`: `detail.type` no longer accepts `exception`.
+  Use `fianu_policy_exception`. A `fianu_policy` carrying `type = "exception"`
+  deployed as a real exception — the server routes on `detail.type`
+  (`pkg/entities_files/policy_deployer.go`) — but the resource then read it back
+  with `FetchPolicy`, which filters `entityType=policy` and never returns
+  exceptions. Every refresh 404'd and silently evicted the resource from state,
+  and `terraform destroy` archived through the policy route. Configurations
+  using that value were already broken; move them to the new resource and
+  re-import with the `policy_exception/` prefix.
+
+### Fixed
+
+- `fianu_policy`, `fianu_collection`, `fianu_environment` and `fianu_target`
+  import no longer fails with a value-conversion error. `ImportState` set only
+  `path`, leaving `detail` null, which the framework cannot decode into a
+  non-pointer detail model — import failed outright with "Received null value,
+  however the target type cannot handle null values". All four now pre-populate
+  the detail object, matching what `fianu_control` has done since 0.2. None of
+  them had an import test; every resource has one now.
+
+
 ## [0.3.0] - 2026-08-08
 
 ### Changed

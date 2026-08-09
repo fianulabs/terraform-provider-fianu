@@ -48,10 +48,11 @@ const entityType = "control"
 
 // Compile-time interface checks.
 var (
-	_ resource.Resource                = (*controlResource)(nil)
-	_ resource.ResourceWithConfigure   = (*controlResource)(nil)
-	_ resource.ResourceWithImportState = (*controlResource)(nil)
-	_ resource.ResourceWithIdentity    = (*controlResource)(nil)
+	_ resource.Resource                   = (*controlResource)(nil)
+	_ resource.ResourceWithConfigure      = (*controlResource)(nil)
+	_ resource.ResourceWithImportState    = (*controlResource)(nil)
+	_ resource.ResourceWithIdentity       = (*controlResource)(nil)
+	_ resource.ResourceWithValidateConfig = (*controlResource)(nil)
 )
 
 // NewResource is the factory the provider package registers.
@@ -85,6 +86,7 @@ type controlDetailModel struct {
 	PolicyTemplate *policyTemplateModel  `tfsdk:"policy_template"`
 	Evaluation     []evaluationCaseModel `tfsdk:"evaluation"`
 	Config         *configModel          `tfsdk:"config"`
+	Template       *templateModel        `tfsdk:"template"`
 }
 
 type documentationModel struct {
@@ -190,8 +192,21 @@ func detailAttribute() schema.SingleNestedAttribute {
 					"manual_attestations": schema.BoolAttribute{Optional: true},
 				},
 			},
+
+			"template": templateAttribute(),
 		},
 	}
+}
+
+// ValidateConfig surfaces a malformed `detail.template` JSON attribute at plan
+// time rather than letting buildTemplate drop it silently.
+func (r *controlResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var cfg controlModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	resp.Diagnostics.Append(templateValidationDiags(path.Root("detail").AtName("template"), cfg.Detail.Template)...)
 }
 
 func (r *controlResource) IdentitySchema(_ context.Context, _ resource.IdentitySchemaRequest, resp *resource.IdentitySchemaResponse) {
@@ -396,6 +411,9 @@ func buildEntity(plan controlModel) (*fianu_entities.Control, error) {
 			EvidenceSubmission: plan.Detail.Config.EvidenceSubmission.ValueBool(),
 			ManualAttestations: plan.Detail.Config.ManualAttestations.ValueBool(),
 		})
+	}
+	if plan.Detail.Template != nil {
+		b = b.WithTemplate(buildTemplate(plan.Detail.Template))
 	}
 
 	return b.Build()

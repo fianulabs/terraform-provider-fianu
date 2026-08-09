@@ -1,0 +1,1 @@
+terraform import fianu_policy_exception.legacy_repos policy_exception/f.exception.security.iac.legacy

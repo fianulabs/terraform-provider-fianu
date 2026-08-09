@@ -269,3 +269,95 @@ func decodeDeployRequest(r *http.Request) (transportv1.DeployEntityFileRequest, 
 	}
 	return req, raw
 }
+
+// TestAccFianuCollection_Import proves the composite ID round-trips through
+// `terraform import`. collectionModel.Detail is a value type, so ImportState
+// has to seed it — the framework cannot convert null into a non-pointer struct
+// and the post-import Read fails before it starts.
+func TestAccFianuCollection_Import(t *testing.T) {
+	stub := newCollectionStub(t)
+	defer stub.server.Close()
+	setEnv(t, stub)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{Config: testAccConfigCollectionMinimal},
+			{
+				Config:            testAccConfigCollectionMinimal,
+				ResourceName:      "fianu_collection.security",
+				ImportState:       true,
+				ImportStateId:     "collection/test.collection.security",
+				ImportStateVerify: true,
+				// detail stays user-authored — Read hydrates the envelope only.
+				ImportStateVerifyIgnore: []string{"detail"},
+			},
+		},
+	})
+}
+
+// TestAccFianuCollection_Update covers the second-apply path: the update
+// reaches the server, the new values land on the wire, and the resource keeps
+// its uuid so destroy can still archive it.
+//
+// That last assertion is the regression guard. The server returns an empty
+// EntityID with action="skipped" when content is unchanged, and Hydrate used to
+// write that empty value straight into state — after which every Delete
+// short-circuits on uuid == "" and the entity is never archived. It was fixed
+// in 0.3.0 for this resource family with no test on the path that produced it.
+func TestAccFianuCollection_Update(t *testing.T) {
+	stub := newCollectionStub(t)
+	defer stub.server.Close()
+	setEnv(t, stub)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccConfigCollectionMinimal,
+				Check:  resource.TestCheckResourceAttrSet("fianu_collection.security", "uuid"),
+			},
+			{
+				Config: testAccConfigCollectionUpdated,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fianu_collection.security", "detail.description", "Updated security controls."),
+					resource.TestCheckResourceAttrSet("fianu_collection.security", "uuid"),
+				),
+			},
+			// Re-apply the same config: this is the "skipped" deploy, the exact
+			// shape that used to blank the uuid.
+			{
+				Config: testAccConfigCollectionUpdated,
+				Check:  resource.TestCheckResourceAttrSet("fianu_collection.security", "uuid"),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+		},
+	})
+
+	got := stub.captured(t)
+	if got.Detail.Description != "Updated security controls." {
+		t.Errorf("after update, description = %q", got.Detail.Description)
+	}
+	if stub.deployHits.Load() < 2 {
+		t.Errorf("deploy hits = %d, want at least 2 — the update never reached the server", stub.deployHits.Load())
+	}
+	if got := stub.archiveHits.Load(); got != 1 {
+		t.Errorf("archive hits = %d, want 1 — destroy could not reach the entity", got)
+	}
+}
+
+const testAccConfigCollectionUpdated = `
+provider "fianu" {}
+
+resource "fianu_collection" "security" {
+  path = "test.collection.security"
+  name = "Security"
+
+  detail = {
+    domain      = "d0a1b2c3-0000-4000-8000-000000000001"
+    description = "Updated security controls."
+  }
+}
+`

@@ -211,3 +211,91 @@ func newPodStub(t *testing.T) *podStub {
 	stub.server = httptest.NewServer(mux)
 	return stub
 }
+
+// TestAccFianuEntityPod_Import proves the three-part composite ID round-trips
+// through `terraform import`. The pod ID is `entity/type/key` and the key may
+// itself contain a colon, so this also covers ParseID splitting on only the
+// first two separators.
+func TestAccFianuEntityPod_Import(t *testing.T) {
+	stub := newPodStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{Config: testAccConfigPodMinimal},
+			{
+				Config:            testAccConfigPodMinimal,
+				ResourceName:      "fianu_entity_pod.export",
+				ImportState:       true,
+				ImportStateId:     "gate-uuid-1/platforms_capabilities_data_exports_gating/gatingSource:jf-prod",
+				ImportStateVerify: true,
+				// Read confirms the pod exists and evicts on 404; it does not
+				// hydrate the payload, because the server canonicalises pod
+				// values on write.
+				ImportStateVerifyIgnore: []string{"value", "name", "description", "enabled"},
+			},
+		},
+	})
+}
+
+// TestAccFianuEntityPod_Update covers the second-apply path. SetEntityPod is a
+// PUT, so Create and Update are literally the same call — what this checks is
+// that a changed value actually reaches the server rather than being treated as
+// no-op, and that the composite ID is stable across the change.
+func TestAccFianuEntityPod_Update(t *testing.T) {
+	stub := newPodStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{Config: testAccConfigPodMinimal},
+			{
+				Config: testAccConfigPodUpdated,
+				Check: resource.ComposeTestCheckFunc(
+					// The ID is derived from (entity, type, key), none of which
+					// changed — a churning ID here would force a replace on
+					// every value edit.
+					resource.TestCheckResourceAttr("fianu_entity_pod.export", "id",
+						"gate-uuid-1/platforms_capabilities_data_exports_gating/gatingSource:jf-prod"),
+				),
+			},
+		},
+	})
+
+	if got := stub.setHits.Load(); got < 2 {
+		t.Errorf("PUT hits = %d, want at least 2 — the update never reached the server", got)
+	}
+	pod := stub.pod(t, "gate-uuid-1", "platforms_capabilities_data_exports_gating", "gatingSource:jf-prod")
+	value, ok := pod["value"].(map[string]any)
+	if !ok {
+		t.Fatalf("pod value is %T, want an object: %+v", pod["value"], pod)
+	}
+	if value["instanceKey"] != "jf-staging" {
+		t.Errorf("the updated value did not reach the wire: instanceKey = %v", value["instanceKey"])
+	}
+}
+
+const testAccConfigPodUpdated = `
+provider "fianu" {}
+
+resource "fianu_entity_pod" "export" {
+  entity_uuid = "gate-uuid-1"
+  pod_type    = "platforms_capabilities_data_exports_gating"
+  key         = "gatingSource:jf-prod"
+
+  value = jsonencode({
+    capability  = "gatingSource"
+    instanceKey = "jf-staging"
+  })
+}
+`

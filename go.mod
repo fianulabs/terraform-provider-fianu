@@ -3,7 +3,7 @@ module github.com/fianulabs/terraform-provider-fianu
 go 1.26.3
 
 require (
-	github.com/fianulabs/core/v2 v2.21.20
+	github.com/fianulabs/core/v2 v2.21.28
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/terraform-plugin-docs v0.25.0
 	github.com/hashicorp/terraform-plugin-framework v1.19.0

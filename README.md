@@ -33,6 +33,50 @@ instances, forms and report templates — declaratively from Terraform.
 | `fianu_form`      | ✅ Available  |
 | `fianu_instance`  | ✅ Available  |
 
+## Data sources — referencing what you don't manage
+
+Every entity above also has a read-only `data.fianu_<entity>` twin. A data
+source looks up an entity by `path` and exposes its envelope — most usefully
+its `uuid`.
+
+That matters because entities reference each other by UUID.
+`fianu_instance.detail.platform_uuid` needs a platform's UUID, and
+`fianu_platform.jira.uuid` only works when the *same* configuration creates the
+platform. When it doesn't — the platform predates Terraform, lives in another
+state file, or belongs to another team — the choice used to be a hardcoded UUID
+or `terraform_remote_state`. A hardcoded UUID is opaque, isn't checked, and
+points at nothing once the entity is archived and recreated.
+
+```hcl
+data "fianu_platform" "jira" {
+  path = "f.platform.jira"
+}
+
+resource "fianu_instance" "acme_jira" {
+  path = "f.instance.jira.acme"
+  name = "Acme Jira"
+
+  detail = {
+    platform_uuid = data.fianu_platform.jira.uuid
+    # ...
+  }
+}
+```
+
+Lookup is by `path` rather than UUID because the path is the identifier humans
+author and `fianu console deploy` keys on — path in, UUID out is the conversion
+that removes the hardcoding.
+
+A data source that finds nothing is an **error**, not an empty result: unlike a
+resource `Read`, where a 404 means "archived out from under us, drop it from
+state", here it means the configuration points at something that doesn't exist,
+and continuing would feed an empty UUID to whatever depends on it.
+
+Data sources expose the envelope only (`uuid`, `name`, `version`, `metadata`,
+`parents`, `children`) — not `detail`. The pod-backed resources
+(`fianu_entity_pod`, `fianu_notification`) have no data source: pods aren't
+entities, so there's no path to look one up by.
+
 ## Pods — living configuration
 
 Not every knob is an entity. **Pods** are JSON-valued rows keyed by

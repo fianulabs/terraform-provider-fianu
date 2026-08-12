@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Data sources for every entity type: `fianu_collection`, `fianu_control`,
+  `fianu_environment`, `fianu_form`, `fianu_gate`, `fianu_index`,
+  `fianu_instance`, `fianu_platform`, `fianu_policy`, `fianu_policy_exception`,
+  `fianu_report_template`, `fianu_target` and `fianu_tool`. Each looks an
+  entity up by `path` and exposes its envelope, most usefully `uuid`.
+
+  This closes the cross-reference gap. Entities reference each other by UUID —
+  `fianu_instance.detail.platform_uuid` is the common case — and
+  `fianu_platform.jira.uuid` only resolves when the same configuration creates
+  the platform. For a platform that predates Terraform, lives in another state
+  file, or belongs to another team, the alternatives were a hardcoded UUID
+  (opaque, unchecked, and stale the moment the entity is archived and
+  recreated) or `terraform_remote_state`.
+
+  Lookup is by `path`, not UUID: the path is the identifier humans author and
+  `fianu console deploy` keys on, so path-in/UUID-out is the conversion that
+  removes the hardcoding. A lookup that finds nothing is an error rather than
+  an empty result — unlike a resource `Read`, where a 404 evicts state, here it
+  means the configuration points at something that does not exist, and
+  continuing would feed an empty UUID downstream.
+
+  Data sources expose the envelope only, not `detail` — the same rule the
+  resources follow for hydration. The pod-backed resources (`fianu_entity_pod`,
+  `fianu_notification`) have no data source: pods are rows keyed by
+  `(entity_id, pod_type, key)`, not entities, so there is no path to look one
+  up by.
+
 - `fianu_tool` resource — an integration that produces the evidence controls
   evaluate. `sources.produces` is what makes a tool's output addressable by a
   control's evaluation input; the server rejects a `consumes` edge with no

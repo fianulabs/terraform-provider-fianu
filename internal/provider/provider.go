@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	controltest "github.com/fianulabs/terraform-provider-fianu/internal/actions/control_test"
+	entitydatasource "github.com/fianulabs/terraform-provider-fianu/internal/datasources/entity"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/collection"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/control"
 	"github.com/fianulabs/terraform-provider-fianu/internal/resources/entitypod"
@@ -211,10 +212,10 @@ func (p *fianuProvider) Resources(_ context.Context) []func() resource.Resource 
 	}
 }
 
+// DataSources returns the read-only `data.fianu_<entity>` lookups. One
+// implementation renders all of them — see internal/datasources/entity.
 func (p *fianuProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	// Data sources land alongside their resources in v0.2; v0.1 ships
-	// resource-only.
-	return nil
+	return entitydatasource.DataSources()
 }
 
 // Actions returns the imperative, run-on-demand operations the provider

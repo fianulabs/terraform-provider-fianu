@@ -131,24 +131,61 @@ func TestAccFianuGate_WithPolicy(t *testing.T) {
 	if len(policy.Detail.Variations) != 1 {
 		t.Fatalf("expected 1 variation, got %d", len(policy.Detail.Variations))
 	}
-	// Variation's Policy map should be the resolved {<label>: <uuid>} shape
-	// the server's gate-children CTE expects — NOT a free-form measures
-	// payload. Regression for the bug where free-form measure JSON corrupted
-	// the row and broke single-row FetchGate.
-	gotPolicy := policy.Detail.Variations[0].Policy
-	if len(gotPolicy) != 1 {
-		t.Fatalf("expected exactly 1 entry in variation.policy, got %d: %+v", len(gotPolicy), gotPolicy)
-	}
+	// Variation's Policy must be exactly {"controls": ["<uuid>", ...]} —
+	// the shape `fianu console deploy` writes and the ONLY shape the gate
+	// rule reads (FianuGateRuleV100: `every control in data.controls`).
+	//
+	// Regression for the AA incident: the provider shipped a
+	// {<uuid>: <uuid>} map instead, so data.controls was undefined, `pass`
+	// fell through to `default pass = false`, and every asset failed both
+	// AA gates. The old assertion asserted the bug, because the httptest
+	// stub echoes back whatever the provider sends — nothing in this suite
+	// knew what the server's rule actually reads.
 	wantUUID := "9919c495-4d74-40b0-a1b8-8e04910ad9ea"
-	v, ok := gotPolicy[wantUUID]
-	if !ok {
-		t.Fatalf("variation.policy missing key %q, got: %+v", wantUUID, gotPolicy)
-	}
-	if v != wantUUID {
-		t.Errorf("variation.policy[%q] = %v, want %q", wantUUID, v, wantUUID)
-	}
+	assertVariationControls(t, policy.Detail.Variations[0].Policy, wantUUID)
 	if len(gate.Detail.Environments) != 1 {
 		t.Errorf("expected 1 environment binding, got %d", len(gate.Detail.Environments))
+	}
+}
+
+// assertVariationControls asserts a gate policy variation carries exactly one
+// key — `controls` — holding want, in order. Keep every gate-policy test on
+// this helper: it is the single place the wire contract with
+// external/pkg/rules/gating.go::FianuGateRuleV100 is spelled out.
+func assertVariationControls(t *testing.T, got fianu_entities.PolicyVariationDetail, want ...string) {
+	t.Helper()
+	if len(got) != 1 {
+		t.Fatalf("variation.policy must hold only the `controls` key, got %d keys: %+v", len(got), got)
+	}
+	raw, ok := got["controls"]
+	if !ok {
+		t.Fatalf("variation.policy missing `controls` key — data.controls would be undefined and the gate always fails; got: %+v", got)
+	}
+	// The stub decodes the multipart JSON, so what lands here is []any even
+	// though the provider builds []string. Accept both — the contract is
+	// "JSON array of UUID strings", not the Go type.
+	var ids []string
+	switch v := raw.(type) {
+	case []string:
+		ids = v
+	case []any:
+		for _, x := range v {
+			s, ok := x.(string)
+			if !ok {
+				t.Fatalf("variation.policy[\"controls\"] contains %T (%v), want a UUID string", x, x)
+			}
+			ids = append(ids, s)
+		}
+	default:
+		t.Fatalf("variation.policy[\"controls\"] = %T (%v), want a JSON array of UUID strings", raw, raw)
+	}
+	if len(ids) != len(want) {
+		t.Fatalf("variation.policy[\"controls\"] = %v, want %v", ids, want)
+	}
+	for i := range want {
+		if ids[i] != want[i] {
+			t.Errorf("variation.policy[\"controls\"][%d] = %q, want %q", i, ids[i], want[i])
+		}
 	}
 }
 

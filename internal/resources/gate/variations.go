@@ -25,11 +25,13 @@ import (
 //
 // Unlike `fianu_policy` variations — which carry a free-form `policy`
 // JSONB of metric overrides — a gate's policy template is fixed by the
-// server to a single `controls` measure. The wire shape the server expects
-// in `policy_rule_sets.policy` is therefore `{<label>: <entity_uuid>}`
-// per required entity; anything else corrupts the row and breaks the
-// gate-children lateral join in
-// core/external/db/controls/v1/enrichment.go.
+// server to a single `controls` measure whose value is the ARRAY of
+// required entity UUIDs: `{"controls": ["<uuid>", "<uuid>"]}`. That is
+// the shape `fianu console deploy` writes for a gate policy and the only
+// shape the gate rule reads: FianuGateRuleV100 evaluates
+// `every control in data.controls`, so a policy with no `controls` key
+// leaves `data.controls` undefined, `pass` falls to its `default false`,
+// and every asset fails the gate.
 //
 // The provider models that as two explicit lists — required_controls and
 // required_gates — and resolves each path/UUID to the entity's UUID at
@@ -93,18 +95,17 @@ func variationsAttribute() schema.ListNestedAttribute {
 }
 
 // buildVariations translates the HCL variations into the wire shape the
-// server's gate-children CTE expects in `policy_rule_sets.policy` — a
-// `{<uuid>: <uuid>}` map per variation. Each required_controls /
-// required_gates entry is resolved to its entity UUID and used as BOTH
-// the key and the value.
+// gate rule reads from `policy_rule_sets.policy` — a single `controls`
+// key per variation holding the array of required entity UUIDs. Each
+// required_controls / required_gates entry is resolved to its entity
+// UUID and appended to that one array; required gates share the slot
+// because FianuGateRuleV100 iterates `data.controls` by UUID and does
+// not distinguish a gate from a control (see
+// core/pkg/transactions/evaluate.go::mergeRequiredGatesIntoPolicy).
 //
-// Why both key and value are the UUID: PolicyVariationDetail is treated
-// as a flat→nested path map server-side; any dot in a key gets parsed as
-// path nesting (e.g., `"terraform.example.iac.scan": uuid` is rewritten
-// to `{"terraform": {"example": {"iac": {"scan": uuid}}}}` and the
-// gate-children CTE casts the top-level value `{"example": ...}` to
-// ::uuid → fails. UUIDs have no dots, so the map round-trips intact
-// and the CTE can iterate `jsonb_object_keys`/`->>::uuid` cleanly.
+// `controls` is deliberately the only key: PolicyVariationDetail is
+// treated as a flat->nested path map server-side, so any dotted key
+// (e.g. a control path) would be re-nested. "controls" has no dot.
 //
 // Resolution failures are returned as diagnostics — callers should
 // short-circuit deploys when buildVariations returns errors so a partial
@@ -113,7 +114,15 @@ func buildVariations(ctx context.Context, client *sdk.Client, in []variationMode
 	var diags diag.Diagnostics
 	out := make([]fianu_entities.PolicyVariation, len(in))
 	for i, v := range in {
-		policy := fianu_entities.PolicyVariationDetail{}
+		ids := make([]string, 0, len(v.RequiredControls)+len(v.RequiredGates))
+		seen := make(map[string]struct{}, cap(ids))
+		emit := func(id string) {
+			if _, dup := seen[id]; dup {
+				return
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
 
 		for _, ref := range v.RequiredControls {
 			if ref.IsNull() || ref.IsUnknown() {
@@ -128,7 +137,7 @@ func buildVariations(ctx context.Context, client *sdk.Client, in []variationMode
 			if rdiags.HasError() {
 				continue
 			}
-			policy[id] = id
+			emit(id)
 		}
 
 		for _, ref := range v.RequiredGates {
@@ -144,8 +153,13 @@ func buildVariations(ctx context.Context, client *sdk.Client, in []variationMode
 			if rdiags.HasError() {
 				continue
 			}
-			policy[id] = id
+			emit(id)
 		}
+
+		// Always write the key, even when empty: an absent `controls`
+		// leaves data.controls undefined in the rule, which is a hard
+		// fail rather than a vacuous pass.
+		policy := fianu_entities.PolicyVariationDetail{"controls": ids}
 
 		out[i] = fianu_entities.PolicyVariation{
 			PolicyEffect: fianu_entities.PolicyEffect(v.Effect.ValueString()),
@@ -159,9 +173,10 @@ func buildVariations(ctx context.Context, client *sdk.Client, in []variationMode
 }
 
 // resolveControlUUID accepts either a UUID-formatted string (returned
-// untouched) or an entity path (fetched + UUID extracted). The server's
-// gate-children CTE casts each map value to ::uuid, so anything we put
-// on the wire MUST parse as a UUID.
+// untouched) or an entity path (fetched + UUID extracted). The gate rule
+// matches each `data.controls` entry against attestation control UUIDs,
+// so anything we put on the wire MUST be a UUID — a path silently matches
+// nothing and the gate fails.
 func resolveControlUUID(ctx context.Context, client *sdk.Client, ref string) (string, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	if _, err := uuid.Parse(ref); err == nil {

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`fianu_gate` wrote a policy shape no gate rule can read — every gate
+  deployed by the provider failed every asset.** A gate's policy variation
+  must carry a single `controls` key holding the array of required entity
+  UUIDs (`{"controls": ["<uuid>", "<uuid>"]}`) — the shape
+  `fianu console deploy` writes and the only shape
+  `FianuGateRuleV100` reads (`every control in data.controls`). The provider
+  instead wrote one map entry per requirement, keyed by the UUID itself
+  (`{"<uuid>": "<uuid>"}`). With no `controls` key, `data.controls` is
+  undefined, the rule's `pass` falls through to `default pass = false`, and
+  the gate fails for every asset regardless of how its controls attested.
+
+  Both shapes were arrived at by reading the *read* path — the gate-children
+  lateral join in `core/external/db/controls/v1/enrichment.go`, which
+  iterates `jsonb_object_keys(prs.policy)` and keeps UUID-shaped string
+  values — and neither was ever checked against the *evaluation* path.
+  `required_gates` entries join the same `controls` array, matching
+  `mergeRequiredGatesIntoPolicy` server-side; the rule does not distinguish a
+  gate from a control.
+
+  Deployed gates need a re-apply to rewrite their policy. Acceptance tests
+  asserted the broken shape (the httptest stub echoes back whatever the
+  provider sends), so the suite was green throughout — the assertion now
+  lives in one helper, `assertVariationControls`, spelling out the contract
+  with `external/pkg/rules/gating.go`.
+
 ### Added
 
 - Data sources for every entity type: `fianu_collection`, `fianu_control`,

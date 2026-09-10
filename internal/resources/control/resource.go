@@ -87,6 +87,7 @@ type controlDetailModel struct {
 	Evaluation     []evaluationCaseModel `tfsdk:"evaluation"`
 	Config         *configModel          `tfsdk:"config"`
 	Template       *templateModel        `tfsdk:"template"`
+	Form           *formRefModel         `tfsdk:"form"`
 }
 
 type documentationModel struct {
@@ -194,6 +195,7 @@ func detailAttribute() schema.SingleNestedAttribute {
 			},
 
 			"template": templateAttribute(),
+			"form":     formAttribute(),
 		},
 	}
 }
@@ -416,7 +418,20 @@ func buildEntity(plan controlModel) (*fianu_entities.Control, error) {
 		b = b.WithTemplate(buildTemplate(plan.Detail.Template))
 	}
 
-	return b.Build()
+	entity, err := b.Build()
+	if err != nil {
+		return nil, err
+	}
+
+	// The form reference is set after Build because the builder has no
+	// WithForm — the CLI reaches Detail.Form through spec.yaml unmarshalling,
+	// never through the builder. Fold this into a builder method the next time
+	// the SDK is bumped; until then one assignment beats a core release.
+	if plan.Detail.Form != nil {
+		entity.Detail.Form = buildFormRef(plan.Detail.Form)
+	}
+
+	return entity, nil
 }
 
 // toDocumentations is plumbing: the model and entity field shapes match

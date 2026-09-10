@@ -16,6 +16,7 @@ import (
 
 	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
 	fianutesting "github.com/fianulabs/core/v2/external/db/types/fianu/testing/v1.0.0"
+	db_vars "github.com/fianulabs/core/v2/external/db/variables"
 	pkgvariables "github.com/fianulabs/core/v2/external/pkg/variables"
 	transportv1 "github.com/fianulabs/core/v2/external/transport/http/v1"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -792,3 +793,164 @@ resource "fianu_control" "example" {
   }
 }
 `
+
+// TestAccFianuControl_Form_AttachesByPath proves `detail.form` reaches the
+// wire as an XEntity carrying the form's path and the form entity type. Type
+// is load-bearing: XEntity.Resolve picks its resolver from that field, so an
+// unset type resolves the key against the wrong table server-side.
+func TestAccFianuControl_Form_AttachesByPath(t *testing.T) {
+	stub := newConsoleStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	cfg := `
+provider "fianu" {}
+resource "fianu_control" "formed" {
+  path = "test.control.formed"
+  name = "Formed Control"
+  detail = {
+    full_name   = "Formed Control"
+    display_key = "FC"
+    form        = { path = "f.form.vendor.annual_review" }
+  }
+}
+`
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{
+				Config: cfg,
+				Check: resource.TestCheckResourceAttr(
+					"fianu_control.formed", "detail.form.path", "f.form.vendor.annual_review"),
+			},
+			{
+				Config: cfg,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+		},
+	})
+
+	captured, _ := stub.capturedEntity.Load().(*fianu_entities.Control)
+	if captured == nil {
+		t.Fatal("no entity captured")
+	}
+	if captured.Detail.Form == nil {
+		t.Fatal("detail.form was dropped before the wire")
+	}
+	if captured.Detail.Form.Path == nil || *captured.Detail.Form.Path != "f.form.vendor.annual_review" {
+		t.Errorf("form path = %v, want f.form.vendor.annual_review", captured.Detail.Form.Path)
+	}
+	if captured.Detail.Form.Type != db_vars.EntityTypeForm {
+		t.Errorf("form type = %q, want %q", captured.Detail.Form.Type, db_vars.EntityTypeForm)
+	}
+	if captured.Detail.Form.UUID != "" {
+		t.Errorf("form uuid = %q, want empty when only path is authored", captured.Detail.Form.UUID)
+	}
+}
+
+// TestAccFianuControl_Form_AttachesByUUID covers the other half of the
+// exactly-one-of pair. The server accepts either key.
+func TestAccFianuControl_Form_AttachesByUUID(t *testing.T) {
+	stub := newConsoleStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	const formUUID = "7c2b1f4e-9a3d-4c5b-8e1f-2a6d3b4c5d6e"
+	cfg := fmt.Sprintf(`
+provider "fianu" {}
+resource "fianu_control" "formed" {
+  path = "test.control.formed.uuid"
+  name = "Formed Control"
+  detail = {
+    full_name   = "Formed Control"
+    display_key = "FC"
+    form        = { uuid = %q }
+  }
+}
+`, formUUID)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps:                    []resource.TestStep{{Config: cfg}},
+	})
+
+	captured, _ := stub.capturedEntity.Load().(*fianu_entities.Control)
+	if captured == nil || captured.Detail.Form == nil {
+		t.Fatal("detail.form was dropped before the wire")
+	}
+	if captured.Detail.Form.UUID != formUUID {
+		t.Errorf("form uuid = %q, want %q", captured.Detail.Form.UUID, formUUID)
+	}
+	if captured.Detail.Form.Path != nil {
+		t.Errorf("form path = %v, want nil when only uuid is authored", *captured.Detail.Form.Path)
+	}
+}
+
+// TestAccFianuControl_Form_RejectsBothKeys and its sibling below pin the
+// exactly-one-of contract at plan time. Server-side the check is
+// "path or uuid is required" (pkg/controls/db.go), which would otherwise
+// surface as an apply-time deploy failure.
+func TestAccFianuControl_Form_RejectsBothKeys(t *testing.T) {
+	stub := newConsoleStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{{
+			Config: `
+provider "fianu" {}
+resource "fianu_control" "formed" {
+  path = "test.control.formed.both"
+  name = "Formed Control"
+  detail = {
+    full_name   = "Formed Control"
+    display_key = "FC"
+    form        = { path = "f.form.x", uuid = "7c2b1f4e-9a3d-4c5b-8e1f-2a6d3b4c5d6e" }
+  }
+}
+`,
+			ExpectError: regexp.MustCompile(`(?s)Invalid Attribute Combination`),
+		}},
+	})
+}
+
+func TestAccFianuControl_Form_RejectsNeitherKey(t *testing.T) {
+	stub := newConsoleStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{{
+			Config: `
+provider "fianu" {}
+resource "fianu_control" "formed" {
+  path = "test.control.formed.neither"
+  name = "Formed Control"
+  detail = {
+    full_name   = "Formed Control"
+    display_key = "FC"
+    form        = {}
+  }
+}
+`,
+			ExpectError: regexp.MustCompile(`(?s)Invalid Attribute Combination`),
+		}},
+	})
+}

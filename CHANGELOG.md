@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-10
+
 ### Fixed
 
 - **`fianu_gate` wrote a policy shape no gate rule can read — every gate
@@ -35,6 +37,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `external/pkg/rules/gating.go`.
 
 ### Added
+
+- **`fianu_control.detail.form`** — attach a `fianu_form` to a control, so the
+  attestation presents that questionnaire. Give exactly one of `path` or
+  `uuid`; the deploy resolves the reference to the form's current active
+  version and writes the `entity_to_form` association
+  (`pkg/controls/db.go::executeCreate`).
+
+  `fianu_form` has shipped the form *definition* since the entity resources
+  landed, but nothing could point a control at one — the provider builds every
+  control through `fianu.NewControlBuilder`, which has no `WithForm`, so the
+  section never reached the wire. The server has accepted `detail.form` the
+  whole time (`entities.ControlDetail.Form`, `SectionForm`), which is why
+  `fianu console deploy` could attach a form and Terraform could not. The
+  reference is set after `Build()` rather than through a builder method; fold
+  it into `WithForm` on the next SDK bump.
+
+  Removing the block does not detach the form. A partial-update deploy that
+  omits a section means "unchanged", so the association carries forward to the
+  new control version — detach in the Console. For the same reason, a form
+  attached in the Console *survives* `terraform apply`: the existing form is
+  hydrated on fetch (`SelectControls` joins `form_association`) and merged
+  back in, so mixing the two paths does not drop the association.
+
+  `detail.form` is not read back into state. Like every other detail section it
+  stays user-authored — hydrating an Optional attribute the configuration
+  leaves null is what produces "Provider produced inconsistent result after
+  apply".
+
+  Policy forms are a different shape (`FormInstance` — the submitted answers,
+  policy-exception only) and are still deferred.
 
 - Data sources for every entity type: `fianu_collection`, `fianu_control`,
   `fianu_environment`, `fianu_form`, `fianu_gate`, `fianu_index`,
@@ -368,7 +400,8 @@ Initial public release.
 - Three vendored production controls under `examples/resources/fianu_control/`
   (`sast_checkmarx`, `unit_tests_pytest`, `container_scan_wiz`).
 
-[Unreleased]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.3.3...v0.4.0
 [0.3.0]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.2.1...v0.2.2

@@ -353,7 +353,7 @@ func buildEntity(plan platformModel) *fianu_entities.Platform {
 	p.Detail.ToolVersion = d.ToolVersion.ValueString()
 	p.Detail.Features = d.Features
 	if d.PlatformType != nil {
-		p.Detail.PlatformType = fianu_entities.PlatformType{
+		p.Detail.PlatformType = fianu_entities.PlatformTypeRef{
 			Name: d.PlatformType.Name.ValueString(),
 			UUID: d.PlatformType.UUID.ValueString(),
 		}

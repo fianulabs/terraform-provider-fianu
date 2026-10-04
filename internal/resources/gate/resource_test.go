@@ -870,3 +870,62 @@ resource "fianu_gate" "security" {
   }
 }
 `
+
+// TestAccFianuGate_Approvals proves `detail.approvals` reaches the wire on a
+// gate and re-plans clean.
+func TestAccFianuGate_Approvals(t *testing.T) {
+	stub := newGateStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{Config: testAccConfigGateApprovals},
+			{
+				Config: testAccConfigGateApprovals,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+		},
+	})
+
+	captured, _ := stub.capturedGate.Load().(*fianu_entities.Control)
+	if captured == nil || captured.Detail.Approvals == nil || len(captured.Detail.Approvals.Rules) != 1 {
+		t.Fatalf("deployed gate approvals = %+v, want one rule", captured)
+	}
+	r := captured.Detail.Approvals.Rules[0]
+	if r.ID != "first-run-auto" || !r.Enforced || !r.Enabled || r.Action.Type != fianu_entities.ApprovalActionAutoApprove ||
+		r.Criteria == nil || r.Criteria.CombineWith != "OR" || len(r.Criteria.Expressions) != 2 {
+		t.Errorf("deployed rule = %+v", r)
+	}
+}
+
+const testAccConfigGateApprovals = `
+provider "fianu" {}
+
+resource "fianu_gate" "example" {
+  path = "test.gate.basic"
+  name = "Basic Test Gate"
+
+  detail = {
+    full_name   = "Basic Test Gate"
+    display_key = "BTG"
+    approvals = {
+      rules = [{
+        id       = "first-run-auto"
+        enforced = true
+        criteria = {
+          combine_with = "OR"
+          expressions  = ["$history.occurrence == 1", "$series.commit.branch.exists(b, b == 'main')"]
+        }
+        action = { type = "auto_approve" }
+      }]
+    }
+  }
+}
+`

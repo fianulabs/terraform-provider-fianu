@@ -76,6 +76,7 @@ Required:
 
 Optional:
 
+- `approvals` (Attributes) Approval rules: who must approve requests this entity governs, or when they approve automatically. Rules are evaluated in order and the first match wins. Leave unset to keep the rules managed in the Console; set `rules = []` to clear them. (see [below for nested schema](#nestedatt--detail--approvals))
 - `assets` (Attributes List) Asset types this control evaluates against. Each asset type lists the version `series` (commit, tag, digest, uri, …) the control fires on. (see [below for nested schema](#nestedatt--detail--assets))
 - `config` (Attributes) Operational configuration — scope of evaluation, retry behavior, evidence/attestation flags. (see [below for nested schema](#nestedatt--detail--config))
 - `description` (String) Free-form description of what the control validates.
@@ -88,6 +89,81 @@ Removing this block does **not** detach the form: a deploy omitting the section 
 - `relations` (Attributes List) Subscription relations — which domain/collection this control reads occurrences from, and which plugin produces them. (see [below for nested schema](#nestedatt--detail--relations))
 - `results` (Attributes) Default result outcomes when the rule emits each verdict. Maps directly to `entities.Results` (a server-side `map[string]bool`). (see [below for nested schema](#nestedatt--detail--results))
 - `template` (Attributes) Report template for this control — the `template` section of the on-disk package. Both JSON attributes are authored with `jsonencode({...})`; their shapes are owned by the reporting service, so they are passed through rather than modelled here. (see [below for nested schema](#nestedatt--detail--template))
+
+<a id="nestedatt--detail--approvals"></a>
+### Nested Schema for `detail.approvals`
+
+Required:
+
+- `rules` (Attributes List) Ordered rules; the first match wins. (see [below for nested schema](#nestedatt--detail--approvals--rules))
+
+<a id="nestedatt--detail--approvals--rules"></a>
+### Nested Schema for `detail.approvals.rules`
+
+Required:
+
+- `action` (Attributes) What a matching rule does. (see [below for nested schema](#nestedatt--detail--approvals--rules--action))
+- `id` (String) Stable slug, unique within the block.
+
+Optional:
+
+- `criteria` (Attributes) CEL over `$request`, `$history`, `$series`, `$evidence`, `$subject`, `$target`, `$requester`; unset means always. (see [below for nested schema](#nestedatt--detail--approvals--rules--criteria))
+- `description` (String) Description.
+- `enabled` (Boolean) A disabled rule is kept but skipped. Defaults to `true`.
+- `enforced` (Boolean) Evaluated before every ordinary rule, farthest governor first, so a domain or collection floor beats a control's auto-approve.
+- `history` (Attributes) What counts as the same finding for `$history.occurrence`. (see [below for nested schema](#nestedatt--detail--approvals--rules--history))
+- `name` (String) Display name.
+- `subject_types` (List of String) Request kinds the rule applies to; unset means every kind.
+
+<a id="nestedatt--detail--approvals--rules--action"></a>
+### Nested Schema for `detail.approvals.rules.action`
+
+Required:
+
+- `type` (String) `require` or `auto_approve`.
+
+Optional:
+
+- `distinct` (Boolean) Each requirement must be met by a different person.
+- `requirements` (Attributes List) One approval condition each (`require` only). (see [below for nested schema](#nestedatt--detail--approvals--rules--action--requirements))
+
+<a id="nestedatt--detail--approvals--rules--action--requirements"></a>
+### Nested Schema for `detail.approvals.rules.action.requirements`
+
+Required:
+
+- `approvers` (List of String) `user:<sub>`, `role:<relation>`, `role:<relation>@<anchor>` or `role:<relation>@each:<anchor>`; an anchor is `control`, `collection`, `domain`, `subject` or an asset type path.
+- `count` (Number) Approvals needed.
+- `label` (String) Condition label.
+
+
+
+<a id="nestedatt--detail--approvals--rules--criteria"></a>
+### Nested Schema for `detail.approvals.rules.criteria`
+
+Required:
+
+- `expressions` (List of String) CEL expressions, e.g. `$history.occurrence >= 3`.
+
+Optional:
+
+- `combine_with` (String) `AND` (default) or `OR`.
+
+
+<a id="nestedatt--detail--approvals--rules--history"></a>
+### Nested Schema for `detail.approvals.rules.history`
+
+Required:
+
+- `key` (String) Line-item field identifying a finding, e.g. `alert_id`.
+- `measure` (String) List measure holding the line items, e.g. `vulnerabilities.alerts`.
+
+Optional:
+
+- `count` (String) `submitted` (default) counts every earlier request; `approved` only approved ones.
+
+
+
 
 <a id="nestedatt--detail--assets"></a>
 ### Nested Schema for `detail.assets`

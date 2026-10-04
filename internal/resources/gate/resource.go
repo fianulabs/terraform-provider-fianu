@@ -105,6 +105,8 @@ type gateDetailModel struct {
 	// the removed `gate_check_rule` entity pods — see checks.go.
 	Gate *gateConfigModel `tfsdk:"gate"`
 
+	Approvals *base.ApprovalsModel `tfsdk:"approvals"`
+
 	// PolicyUUID is the computed UUID of the deployed policy entity (when
 	// `policy` is set). Tracked so Delete can archive the policy by UUID.
 	PolicyUUID types.String `tfsdk:"policy_uuid"`
@@ -209,7 +211,8 @@ func detailAttribute() schema.SingleNestedAttribute {
 				},
 			},
 
-			"gate": gateConfigAttribute(),
+			"gate":      gateConfigAttribute(),
+			"approvals": base.ApprovalsAttribute(),
 
 			"policy_uuid": schema.StringAttribute{
 				MarkdownDescription: "Computed UUID of the deployed policy entity (when `policy` is set). Tracked in state so Delete can archive the policy by UUID.",
@@ -494,6 +497,7 @@ func buildGateEntity(plan gateModel) *fianu_entities.Control {
 	}
 	c.Detail.Environments = buildEnvironments(plan.Detail.Environments)
 	c.Detail.Gate = buildGateConfig(plan.Detail.Gate)
+	c.Detail.Approvals = base.BuildApprovals(plan.Detail.Approvals)
 	return c
 }
 

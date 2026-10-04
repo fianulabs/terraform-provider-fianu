@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-04
+
+### Added
+
+- `detail.approvals` on `fianu_control`, `fianu_gate` and `fianu_collection`: ordered approval rules (who must approve requests the entity governs, or when they auto-approve). Leave it unset to keep rules managed in the Console; `approvals = { rules = [] }` clears them. Rule enums (`action.type`, `subject_types`, `history.count`, `criteria.combine_with`) fail at plan time; criteria and approver specs are validated by the server on deploy.
+
+### Changed
+
+- Requires `github.com/fianulabs/core/v2` v2.24.12 (approval rules). `fianu_platform` follows core's rename of `PlatformType` to `PlatformTypeRef` in `detail.platform_type`; the HCL is unchanged.
+
 ## [0.4.0] - 2026-09-10
 
 ### Fixed
@@ -400,7 +410,8 @@ Initial public release.
 - Three vendored production controls under `examples/resources/fianu_control/`
   (`sast_checkmarx`, `unit_tests_pytest`, `container_scan_wiz`).
 
-[Unreleased]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.3.3...v0.4.0
 [0.3.0]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/fianulabs/terraform-provider-fianu/compare/v0.2.2...v0.2.3

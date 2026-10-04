@@ -70,10 +70,11 @@ type collectionModel struct {
 }
 
 type collectionDetailModel struct {
-	Description              types.String    `tfsdk:"description"`
-	Domain                   types.String    `tfsdk:"domain"`
-	InheritDomainPermissions types.Bool      `tfsdk:"inherit_domain_permissions"`
-	Documentation            []base.DocModel `tfsdk:"documentation"`
+	Description              types.String         `tfsdk:"description"`
+	Domain                   types.String         `tfsdk:"domain"`
+	InheritDomainPermissions types.Bool           `tfsdk:"inherit_domain_permissions"`
+	Documentation            []base.DocModel      `tfsdk:"documentation"`
+	Approvals                *base.ApprovalsModel `tfsdk:"approvals"`
 }
 
 func (r *collectionResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -107,6 +108,7 @@ func detailAttribute() schema.SingleNestedAttribute {
 				Optional:            true,
 			},
 			"documentation": base.DocumentationAttribute(),
+			"approvals":     base.ApprovalsAttribute(),
 		},
 	}
 }
@@ -267,6 +269,7 @@ func buildEntity(plan collectionModel) *fianu_entities.Collection {
 	c.Detail.Domain = plan.Detail.Domain.ValueString()
 	c.Detail.InheritDomainPermissions = plan.Detail.InheritDomainPermissions.ValueBool()
 	c.Detail.Documentation = base.BuildDocumentation(plan.Detail.Documentation)
+	c.Detail.Approvals = base.BuildApprovals(plan.Detail.Approvals)
 	return c
 }
 

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync/atomic"
@@ -23,6 +24,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"github.com/joshdk/go-junit"
 
 	"github.com/fianulabs/terraform-provider-fianu/internal/provider"
@@ -951,6 +953,122 @@ resource "fianu_control" "formed" {
 }
 `,
 			ExpectError: regexp.MustCompile(`(?s)Invalid Attribute Combination`),
+		}},
+	})
+}
+
+// TestAccFianuControl_Approvals proves `detail.approvals` reaches the wire in
+// the server's shape, and the three states Terraform can express: rules
+// (replace), `rules = []` (clear), and unset (nil on the wire, so the server
+// keeps whatever the Console set).
+func TestAccFianuControl_Approvals(t *testing.T) {
+	stub := newConsoleStub(t)
+	defer stub.server.Close()
+
+	t.Setenv("TF_ACC", "1")
+	t.Setenv("FIANU_HOST", stub.server.URL)
+	t.Setenv("FIANU_TOKEN", "test-bearer")
+
+	deployed := func(check func(*fianu_entities.Approvals) error) resource.TestCheckFunc {
+		return func(*terraform.State) error {
+			c, _ := stub.capturedEntity.Load().(*fianu_entities.Control)
+			if c == nil {
+				return fmt.Errorf("no deployed entity captured")
+			}
+			return check(c.Detail.Approvals)
+		}
+	}
+	want := &fianu_entities.Approvals{Rules: []fianu_entities.ApprovalRule{{
+		ID: "second-alert-owner", Name: "Second exception needs the control owner", Enabled: true,
+		SubjectTypes: []fianu_entities.ApprovalSubjectType{fianu_entities.ApprovalSubjectException},
+		History:      &fianu_entities.ApprovalHistory{Measure: "vulnerabilities.alerts", Key: "alert_id"},
+		Criteria: &fianu_entities.ApprovalCriteria{Expressions: []fianu_entities.ApprovalExpression{
+			{ExprSource: "$history.occurrence == 2"}}},
+		Action: fianu_entities.ApprovalAction{Type: fianu_entities.ApprovalActionRequire, Distinct: true,
+			Requirements: []fianu_entities.ApprovalRequirement{{Label: "Control Owner", Approvers: []string{"role:owner@control"}, Count: 1}}},
+	}}}
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(testAccConfigControlApprovals, testAccApprovalsRule),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fianu_control.example", "detail.approvals.rules.0.enabled", "true"),
+					deployed(func(got *fianu_entities.Approvals) error {
+						if !reflect.DeepEqual(got, want) {
+							return fmt.Errorf("deployed approvals = %+v, want %+v", got, want)
+						}
+						return nil
+					}),
+				),
+			},
+			{
+				Config: fmt.Sprintf(testAccConfigControlApprovals, testAccApprovalsRule),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+			{
+				Config: fmt.Sprintf(testAccConfigControlApprovals, "approvals = { rules = [] }"),
+				Check: deployed(func(got *fianu_entities.Approvals) error {
+					if got == nil || len(got.Rules) != 0 {
+						return fmt.Errorf("rules = [] must deploy an empty block that clears the rules, got %+v", got)
+					}
+					return nil
+				}),
+			},
+			{
+				Config: fmt.Sprintf(testAccConfigControlApprovals, ""),
+				Check: deployed(func(got *fianu_entities.Approvals) error {
+					if got != nil {
+						return fmt.Errorf("unset approvals must deploy no block so the server keeps its rules, got %+v", got)
+					}
+					return nil
+				}),
+			},
+		},
+	})
+}
+
+const testAccApprovalsRule = `approvals = {
+      rules = [{
+        id            = "second-alert-owner"
+        name          = "Second exception needs the control owner"
+        subject_types = ["exception"]
+        history       = { measure = "vulnerabilities.alerts", key = "alert_id" }
+        criteria      = { expressions = ["$history.occurrence == 2"] }
+        action = {
+          type         = "require"
+          distinct     = true
+          requirements = [{ label = "Control Owner", approvers = ["role:owner@control"], count = 1 }]
+        }
+      }]
+    }`
+
+const testAccConfigControlApprovals = `
+provider "fianu" {}
+
+resource "fianu_control" "example" {
+  path = "test.control.basic"
+  name = "Basic Test Control"
+  detail = {
+    full_name   = "Basic Test Control"
+    display_key = "BTC"
+    %s
+  }
+}
+`
+
+// TestAccFianuControl_Approvals_RejectsUnknownAction proves enum typos fail at plan time.
+func TestAccFianuControl_Approvals_RejectsUnknownAction(t *testing.T) {
+	t.Setenv("TF_ACC", "1")
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{{
+			Config: fmt.Sprintf(testAccConfigControlApprovals,
+				`approvals = { rules = [{ id = "a", action = { type = "maybe" } }] }`),
+			ExpectError: regexp.MustCompile(`value must be one of`),
 		}},
 	})
 }

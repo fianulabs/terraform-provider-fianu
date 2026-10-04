@@ -88,6 +88,7 @@ type controlDetailModel struct {
 	Config         *configModel          `tfsdk:"config"`
 	Template       *templateModel        `tfsdk:"template"`
 	Form           *formRefModel         `tfsdk:"form"`
+	Approvals      *base.ApprovalsModel  `tfsdk:"approvals"`
 }
 
 type documentationModel struct {
@@ -194,8 +195,9 @@ func detailAttribute() schema.SingleNestedAttribute {
 				},
 			},
 
-			"template": templateAttribute(),
-			"form":     formAttribute(),
+			"template":  templateAttribute(),
+			"form":      formAttribute(),
+			"approvals": base.ApprovalsAttribute(),
 		},
 	}
 }
@@ -391,7 +393,8 @@ func buildEntity(plan controlModel) (*fianu_entities.Control, error) {
 			stringPtr(plan.Detail.Description),
 		).
 		WithDocumentation(toDocumentations(plan.Detail.Documentation)...).
-		WithEvaluation(buildEvaluationCases(plan.Detail.Evaluation)...)
+		WithEvaluation(buildEvaluationCases(plan.Detail.Evaluation)...).
+		WithApprovals(base.BuildApprovals(plan.Detail.Approvals))
 
 	if plan.Detail.Results != nil {
 		b = b.WithResults(toResults(plan.Detail.Results))

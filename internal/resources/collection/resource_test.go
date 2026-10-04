@@ -361,3 +361,56 @@ resource "fianu_collection" "security" {
   }
 }
 `
+
+// TestAccFianuCollection_Approvals proves `detail.approvals` reaches the wire
+// on a collection and re-plans clean.
+func TestAccFianuCollection_Approvals(t *testing.T) {
+	stub := newCollectionStub(t)
+	defer stub.server.Close()
+
+	setEnv(t, stub)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6Factories(),
+		Steps: []resource.TestStep{
+			{Config: testAccConfigCollectionApprovals},
+			{
+				Config: testAccConfigCollectionApprovals,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+		},
+	})
+
+	got := stub.captured(t).Detail.Approvals
+	if got == nil || len(got.Rules) != 1 {
+		t.Fatalf("deployed collection approvals = %+v, want one rule", got)
+	}
+	q := got.Rules[0].Action.Requirements
+	if len(q) != 1 || q[0].Count != 2 || q[0].Approvers[0] != "role:owner@each:application" {
+		t.Errorf("deployed requirements = %+v", q)
+	}
+}
+
+const testAccConfigCollectionApprovals = `
+provider "fianu" {}
+
+resource "fianu_collection" "security" {
+  path = "test.collection.security"
+  name = "Security"
+
+  detail = {
+    domain = "d0a1b2c3-0000-4000-8000-000000000001"
+    approvals = {
+      rules = [{
+        id     = "app-owners"
+        action = {
+          type         = "require"
+          requirements = [{ label = "Application owners", approvers = ["role:owner@each:application"], count = 2 }]
+        }
+      }]
+    }
+  }
+}
+`

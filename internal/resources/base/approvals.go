@@ -4,6 +4,8 @@
 package base
 
 import (
+	"fmt"
+
 	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
@@ -42,9 +44,11 @@ type ApprovalRuleModel struct {
 
 // ApprovalHistoryModel identifies repeat requests for $history.occurrence.
 type ApprovalHistoryModel struct {
-	Measure types.String `tfsdk:"measure"`
-	Key     types.String `tfsdk:"key"`
-	Count   types.String `tfsdk:"count"`
+	Measure   types.String `tfsdk:"measure"`
+	Key       types.String `tfsdk:"key"`
+	Count     types.String `tfsdk:"count"`
+	Scope     types.String `tfsdk:"scope"`
+	MaxAssets types.Int64  `tfsdk:"max_assets"`
 }
 
 // ApprovalCriteriaModel is the rule's condition.
@@ -113,13 +117,35 @@ func approvalRuleAttributes() map[string]schema.Attribute {
 			MarkdownDescription: "What counts as the same finding for `$history.occurrence`.",
 			Optional:            true,
 			Attributes: map[string]schema.Attribute{
-				"measure": schema.StringAttribute{MarkdownDescription: "List measure holding the line items, e.g. `vulnerabilities.alerts`.", Required: true},
-				"key":     schema.StringAttribute{MarkdownDescription: "Line-item field identifying a finding, e.g. `alert_id`.", Required: true},
+				"measure": schema.StringAttribute{
+					MarkdownDescription: "List measure holding the line items, e.g. `vulnerabilities.alerts`. " +
+						"Required with scope `control`; with scope `asset`, unset counts every request covering the asset.",
+					Optional: true,
+				},
+				"key": schema.StringAttribute{
+					MarkdownDescription: "Line-item field identifying a finding, e.g. `alert_id`. Unset when the measure is a list of strings (e.g. CVE ids).",
+					Optional:            true,
+				},
 				"count": schema.StringAttribute{
 					MarkdownDescription: "`submitted` (default) counts every earlier request; `approved` only approved ones.",
 					Optional:            true,
 					Validators: []validator.String{stringvalidator.OneOf(
 						string(fianu_entities.ApprovalHistoryCountSubmitted), string(fianu_entities.ApprovalHistoryCountApproved))},
+				},
+				"scope": schema.StringAttribute{
+					MarkdownDescription: "`control` (default) counts a finding across every asset; `asset` counts per asset the request covers, " +
+						"so the first exception on each asset is occurrence 1. Scope `asset` needs `subject_types` of `exception` and/or `policy`.",
+					Optional: true,
+					Validators: []validator.String{stringvalidator.OneOf(
+						string(fianu_entities.ApprovalHistoryScopeControl), string(fianu_entities.ApprovalHistoryScopeAsset))},
+				},
+				"max_assets": schema.Int64Attribute{
+					MarkdownDescription: fmt.Sprintf("With scope `asset`, the most assets a request may cover and still count per asset "+
+						"(default %d, at most %d). A wider request does not match a per-asset auto-approve, so a later rule (e.g. the owner) applies, "+
+						"and it never counts toward its assets' history.",
+						fianu_entities.DefaultApprovalHistoryMaxAssets, fianu_entities.MaxApprovalHistoryMaxAssets),
+					Optional:   true,
+					Validators: []validator.Int64{int64validator.Between(1, fianu_entities.MaxApprovalHistoryMaxAssets)},
 				},
 			},
 		},
@@ -198,7 +224,9 @@ func (r ApprovalRuleModel) toRule() fianu_entities.ApprovalRule {
 	}
 	if h := r.History; h != nil {
 		rule.History = &fianu_entities.ApprovalHistory{Measure: h.Measure.ValueString(), Key: h.Key.ValueString(),
-			Count: fianu_entities.ApprovalHistoryCount(h.Count.ValueString())}
+			Count:     fianu_entities.ApprovalHistoryCount(h.Count.ValueString()),
+			Scope:     fianu_entities.ApprovalHistoryScope(h.Scope.ValueString()),
+			MaxAssets: int(h.MaxAssets.ValueInt64())}
 	}
 	if c := r.Criteria; c != nil {
 		rule.Criteria = &fianu_entities.ApprovalCriteria{CombineWith: c.CombineWith.ValueString()}

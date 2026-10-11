@@ -155,14 +155,13 @@ Optional:
 <a id="nestedatt--detail--approvals--rules--history"></a>
 ### Nested Schema for `detail.approvals.rules.history`
 
-Required:
-
-- `key` (String) Line-item field identifying a finding, e.g. `alert_id`.
-- `measure` (String) List measure holding the line items, e.g. `vulnerabilities.alerts`.
-
 Optional:
 
 - `count` (String) `submitted` (default) counts every earlier request; `approved` only approved ones.
+- `key` (String) Line-item field identifying a finding, e.g. `alert_id`. Unset when the measure is a list of strings (e.g. CVE ids).
+- `max_assets` (Number) With scope `asset`, the most assets a request may cover and still count per asset (default 10, at most 100). A wider request does not match a per-asset auto-approve, so a later rule (e.g. the owner) applies, and it never counts toward its assets' history.
+- `measure` (String) List measure holding the line items, e.g. `vulnerabilities.alerts`. Required with scope `control`; with scope `asset`, unset counts every request covering the asset.
+- `scope` (String) `control` (default) counts a finding across every asset; `asset` counts per asset the request covers, so the first exception on each asset is occurrence 1. Scope `asset` needs `subject_types` of `exception` and/or `policy`.
 
 
 

@@ -979,6 +979,14 @@ func TestAccFianuControl_Approvals(t *testing.T) {
 		}
 	}
 	want := &fianu_entities.Approvals{Rules: []fianu_entities.ApprovalRule{{
+		ID: "first-cve-per-asset", Enabled: true,
+		SubjectTypes: []fianu_entities.ApprovalSubjectType{fianu_entities.ApprovalSubjectException},
+		History: &fianu_entities.ApprovalHistory{Measure: "vulnerabilities.cves",
+			Scope: fianu_entities.ApprovalHistoryScopeAsset, MaxAssets: 25},
+		Criteria: &fianu_entities.ApprovalCriteria{Expressions: []fianu_entities.ApprovalExpression{
+			{ExprSource: "$history.occurrence == 1"}}},
+		Action: fianu_entities.ApprovalAction{Type: fianu_entities.ApprovalActionAutoApprove},
+	}, {
 		ID: "second-alert-owner", Name: "Second exception needs the control owner", Enabled: true,
 		SubjectTypes: []fianu_entities.ApprovalSubjectType{fianu_entities.ApprovalSubjectException},
 		History:      &fianu_entities.ApprovalHistory{Measure: "vulnerabilities.alerts", Key: "alert_id"},
@@ -1001,6 +1009,15 @@ func TestAccFianuControl_Approvals(t *testing.T) {
 						}
 						return nil
 					}),
+					func(*terraform.State) error {
+						c, _ := stub.capturedEntity.Load().(*fianu_entities.Control)
+						got := c.Detail.PolicyTemplate.Measures[0].Children[1].Keys
+						wantKeys := []fianu_entities.MeasureKey{{Name: "alert_id", Type: fianu_entities.MeasureKeyTypeString}}
+						if !reflect.DeepEqual(got, wantKeys) {
+							return fmt.Errorf("alerts keys = %+v, want %+v", got, wantKeys)
+						}
+						return nil
+					},
 				),
 			},
 			{
@@ -1031,8 +1048,26 @@ func TestAccFianuControl_Approvals(t *testing.T) {
 	})
 }
 
-const testAccApprovalsRule = `approvals = {
+// testAccApprovalsRule declares the measures its history rules read: the
+// server rejects a per-asset rule whose measure the control does not declare.
+const testAccApprovalsRule = `policy_template = {
+      measures = [{
+        name = "vulnerabilities"
+        type = "section"
+        children = [
+          { name = "cves", type = "metric", value = "array.string" },
+          { name = "alerts", type = "metric", value = "array.object", keys = [{ name = "alert_id", type = "string" }] },
+        ]
+      }]
+    }
+    approvals = {
       rules = [{
+        id            = "first-cve-per-asset"
+        subject_types = ["exception"]
+        history       = { measure = "vulnerabilities.cves", scope = "asset", max_assets = 25 }
+        criteria      = { expressions = ["$history.occurrence == 1"] }
+        action        = { type = "auto_approve" }
+      }, {
         id            = "second-alert-owner"
         name          = "Second exception needs the control owner"
         subject_types = ["exception"]
@@ -1060,7 +1095,8 @@ resource "fianu_control" "example" {
 }
 `
 
-// TestAccFianuControl_Approvals_RejectsUnknownAction proves enum typos fail at plan time.
+// TestAccFianuControl_Approvals_RejectsUnknownAction proves enum typos and an
+// out-of-range max_assets fail at plan time.
 func TestAccFianuControl_Approvals_RejectsUnknownAction(t *testing.T) {
 	t.Setenv("TF_ACC", "1")
 	resource.Test(t, resource.TestCase{
@@ -1069,6 +1105,14 @@ func TestAccFianuControl_Approvals_RejectsUnknownAction(t *testing.T) {
 			Config: fmt.Sprintf(testAccConfigControlApprovals,
 				`approvals = { rules = [{ id = "a", action = { type = "maybe" } }] }`),
 			ExpectError: regexp.MustCompile(`value must be one of`),
+		}, {
+			Config: fmt.Sprintf(testAccConfigControlApprovals,
+				`approvals = { rules = [{ id = "a", history = { scope = "repo" }, action = { type = "auto_approve" } }] }`),
+			ExpectError: regexp.MustCompile(`value must be one of`),
+		}, {
+			Config: fmt.Sprintf(testAccConfigControlApprovals,
+				`approvals = { rules = [{ id = "a", history = { scope = "asset", max_assets = 101 }, action = { type = "auto_approve" } }] }`),
+			ExpectError: regexp.MustCompile(`must be between\s+1 and 100`),
 		}},
 	})
 }

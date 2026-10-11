@@ -4,6 +4,8 @@
 package control
 
 import (
+	"strings"
+
 	fianu_entities "github.com/fianulabs/core/v2/external/db/types/fianu/entities"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -25,6 +27,7 @@ import (
 // recursive helper instead of five copy-pasted functions.
 type measureNode interface {
 	core() (name, typ, valueStr string, descPtr *string)
+	keys() []fianu_entities.MeasureKey
 	childMeasures() []fianu_entities.Measure
 }
 
@@ -34,6 +37,7 @@ func convertMeasureNode(n measureNode) fianu_entities.Measure {
 		Name:        name,
 		Type:        typ,
 		Description: desc,
+		Keys:        n.keys(),
 		Children:    n.childMeasures(),
 	}
 	if val != "" {
@@ -45,14 +49,32 @@ func convertMeasureNode(n measureNode) fianu_entities.Measure {
 // measureModelLeaf carries the four fields every level shares — extracted so
 // each level only declares the children type that varies.
 type measureModelLeaf struct {
-	Name        types.String `tfsdk:"name"`
-	Type        types.String `tfsdk:"type"`
-	Value       types.String `tfsdk:"value"`
-	Description types.String `tfsdk:"description"`
+	Name        types.String      `tfsdk:"name"`
+	Type        types.String      `tfsdk:"type"`
+	Value       types.String      `tfsdk:"value"`
+	Description types.String      `tfsdk:"description"`
+	Keys        []measureKeyModel `tfsdk:"keys"`
+}
+
+// measureKeyModel is one column of an `array.object` metric.
+type measureKeyModel struct {
+	Name types.String `tfsdk:"name"`
+	Type types.String `tfsdk:"type"`
 }
 
 func (m measureModelLeaf) core() (string, string, string, *string) {
 	return m.Name.ValueString(), m.Type.ValueString(), valueStringOrEmpty(m.Value), stringPtr(m.Description)
+}
+
+func (m measureModelLeaf) keys() []fianu_entities.MeasureKey {
+	if len(m.Keys) == 0 {
+		return nil
+	}
+	out := make([]fianu_entities.MeasureKey, 0, len(m.Keys))
+	for _, k := range m.Keys {
+		out = append(out, fianu_entities.MeasureKey{Name: k.Name.ValueString(), Type: fianu_entities.MeasureKeyType(k.Type.ValueString())})
+	}
+	return out
 }
 
 type measureModelL5 struct{ measureModelLeaf }
@@ -125,7 +147,7 @@ func measureLeafFields() map[string]schema.Attribute {
 			},
 		},
 		"value": schema.StringAttribute{
-			MarkdownDescription: "Value type for `metric` measures. One of `bool`, `number`, `string`, `array.string`. Ignored for `section` measures.",
+			MarkdownDescription: "Value type for `metric` measures. One of `" + strings.Join(fianu_entities.AllMeasureValues(), "`, `") + "`. Ignored for `section` measures.",
 			Optional:            true,
 			Validators: []validator.String{
 				stringvalidator.OneOf(fianu_entities.AllMeasureValues()...),
@@ -134,6 +156,17 @@ func measureLeafFields() map[string]schema.Attribute {
 		"description": schema.StringAttribute{
 			MarkdownDescription: "Optional human-readable description shown in policy authoring UI.",
 			Optional:            true,
+		},
+		"keys": schema.ListNestedAttribute{
+			MarkdownDescription: "Ordered columns of an `array.object` metric, e.g. `alert_id`. An approval rule's `history.key` must name one.",
+			Optional:            true,
+			NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
+				"name": schema.StringAttribute{MarkdownDescription: "Object property name.", Required: true},
+				"type": schema.StringAttribute{
+					MarkdownDescription: "`string`, `number` or `bool`.", Required: true,
+					Validators: []validator.String{stringvalidator.OneOf(fianu_entities.AllMeasureKeyTypes()...)},
+				},
+			}},
 		},
 	}
 }
@@ -148,7 +181,7 @@ func measuresAttribute() schema.ListNestedAttribute {
 	level1 := schema.NestedAttributeObject{Attributes: withChildren(measureLeafFields(), level2, "level 2")}
 
 	return schema.ListNestedAttribute{
-		MarkdownDescription: "Hierarchical policy measure tree. Sections group related metrics; metrics carry a typed `value` (bool/number/string/array.string). Bounded to 5 levels of nesting.",
+		MarkdownDescription: "Hierarchical policy measure tree. Sections group related metrics; metrics carry a typed `value`. Bounded to 5 levels of nesting.",
 		Optional:            true,
 		NestedObject:        level1,
 	}
